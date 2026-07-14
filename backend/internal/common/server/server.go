@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -41,6 +43,7 @@ func New(cfg config.Config, database *sql.DB) *Server {
 	router := chi.NewRouter()
 	origins := cfg.CORSAllowedOrigins
 	if len(origins) == 0 {
+		log.Println("[WARN] CORS_ALLOWED_ORIGINS not set — defaulting to localhost origins. Set this for production.")
 		origins = []string{
 			"http://localhost:3000",
 			"http://127.0.0.1:3000",
@@ -51,9 +54,14 @@ func New(cfg config.Config, database *sql.DB) *Server {
 		}
 	}
 	router.Use(corsMiddleware(origins))
+	router.Use(requestLogger)
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	router.Get("/ai/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(aiService.Status())
 	})
 	router.Route("/auth", authService.Routes)
 	router.Route("/github", func(r chi.Router) {
@@ -94,6 +102,15 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.http.Shutdown(ctx)
+}
+
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		log.Printf("[%s] %s %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+		log.Printf("[%s] %s completed in %v", r.Method, r.URL.Path, time.Since(start))
+	})
 }
 
 func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {

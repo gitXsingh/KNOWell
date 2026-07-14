@@ -20,10 +20,6 @@ type Service struct {
 	timeline *timeline.Service
 }
 
-type DraftPromoter interface {
-	PromoteApprovedDraft(ctx context.Context, userID, projectID, draftID string) (*KnowledgeItemResponse, error)
-}
-
 type KnowledgeItemResponse struct {
 	ID               string     `json:"id"`
 	ProjectID        string     `json:"project_id"`
@@ -44,6 +40,11 @@ type KnowledgeItemResponse struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
+type EditKnowledgeRequest struct {
+	DecisionBody string `json:"decision_body"`
+	AgentsMd     string `json:"agents_md"`
+}
+
 type PromoteRequest struct {
 	DraftID string `json:"draft_id"`
 }
@@ -61,6 +62,7 @@ func NewService(database *sql.DB, timelineService *timeline.Service) *Service {
 func (s *Service) Routes(router chi.Router, authMiddleware func(http.Handler) http.Handler) {
 	router.With(authMiddleware).Get("/", s.handleList)
 	router.With(authMiddleware).Get("/{knowledgeID}", s.handleGet)
+	router.With(authMiddleware).Patch("/{knowledgeID}", s.handleEdit)
 	router.With(authMiddleware).Post("/promote", s.handlePromote)
 }
 
@@ -113,6 +115,40 @@ func (s *Service) Get(ctx context.Context, userID, projectID, knowledgeID string
 	if err != nil {
 		return nil, err
 	}
+	return &item, nil
+}
+
+func (s *Service) Edit(ctx context.Context, userID, projectID, knowledgeID string, req EditKnowledgeRequest) (*KnowledgeItemResponse, error) {
+	if !s.canReviewProject(ctx, userID, projectID) {
+		return nil, ErrKnowledgeDenied
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		UPDATE knowledge_items
+		SET decision_body = $1, agents_md = $2, updated_at = now()
+		WHERE id = $3 AND project_id = $4
+		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
+	`, strings.TrimSpace(req.DecisionBody), strings.TrimSpace(req.AgentsMd), knowledgeID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, ErrKnowledgeMissing
+	}
+	item, err := scanKnowledge(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	var workspaceID string
+	_ = s.db.QueryRowContext(ctx, `SELECT workspace_id FROM projects WHERE id = $1`, projectID).Scan(&workspaceID)
+	if s.timeline != nil {
+		_ = s.timeline.Record(ctx, workspaceID, projectID, userID, "knowledge_edited", "knowledge_item", item.ID, map[string]any{
+			"title": item.Title,
+		}, "knowledge-edited:"+item.ID)
+	}
+
 	return &item, nil
 }
 
@@ -228,9 +264,6 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 		)
 		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
 	`, projectID, repositoryID, commitID, pullRequestID, title, summary, body, decisionBody, agentsMd, importance, userID)
-	if err != nil {
-		return nil, err
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -366,6 +399,27 @@ func (s *Service) handleGet(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	knowledgeID := chi.URLParam(r, "knowledgeID")
 	item, err := s.Get(r.Context(), userID, projectID, knowledgeID)
+	if err != nil {
+		handleKnowledgeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Service) handleEdit(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required")
+		return
+	}
+	var req EditKnowledgeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is invalid")
+		return
+	}
+	projectID := chi.URLParam(r, "projectID")
+	knowledgeID := chi.URLParam(r, "knowledgeID")
+	item, err := s.Edit(r.Context(), userID, projectID, knowledgeID, req)
 	if err != nil {
 		handleKnowledgeError(w, err)
 		return

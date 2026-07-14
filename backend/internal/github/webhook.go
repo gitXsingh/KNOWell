@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -170,6 +169,4 @@ func webhookStatusFor(eventType, action string) string {
 	}
 }
 
-func webhookSummaryMessage(eventType, action string) string {
-	return fmt.Sprintf("%s:%s", eventType, action)
-}
+

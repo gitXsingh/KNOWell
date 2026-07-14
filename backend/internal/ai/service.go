@@ -120,6 +120,18 @@ func NewService(database *sql.DB, cfg config.Config, timelineService *timeline.S
 	}
 }
 
+type AIStatusResponse struct {
+	Available bool   `json:"available"`
+	Provider  string `json:"provider"`
+}
+
+func (s *Service) Status() AIStatusResponse {
+	return AIStatusResponse{
+		Available: s.provider.Name() != "builtin",
+		Provider:  s.provider.Name(),
+	}
+}
+
 func (s *Service) Routes(router chi.Router, authMiddleware func(http.Handler) http.Handler) {
 	router.With(authMiddleware).Get("/", s.handleList)
 	router.With(authMiddleware).Get("/{draftID}", s.handleGet)
@@ -463,19 +475,6 @@ func scanDraft(scanner interface{ Scan(...any) error }) (DraftResponse, error) {
 	}
 	if reviewedAt.Valid {
 		response.ReviewedAt = &reviewedAt.Time
-	}
-	if commitID.Valid {
-		response.CommitID = commitID.String
-	}
-	if pullRequestID.Valid {
-		response.PullRequestID = pullRequestID.String
-	}
-	if reviewedByUserID.Valid {
-		response.ReviewedByUserID = reviewedByUserID.String
-	}
-	if reviewedAt.Valid {
-		value := reviewedAt.Time
-		response.ReviewedAt = &value
 	}
 	return response, nil
 }

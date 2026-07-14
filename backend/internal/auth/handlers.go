@@ -69,7 +69,7 @@ func (s *Service) handleError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrEmailExists):
 		writeError(w, http.StatusConflict, "email_exists", "An account with that email already exists")
 	case strings.Contains(err.Error(), "missing required fields"):
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "Please fill in all required fields")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong")
 	}

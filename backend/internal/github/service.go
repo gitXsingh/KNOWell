@@ -48,9 +48,10 @@ type AccountStatusResponse struct {
 }
 
 type accountRecord struct {
-	GitHubUserID int64
-	TokenScopes  string
-	ConnectedAt  time.Time
+	GitHubUserID   int64
+	TokenScopes    string
+	ConnectedAt    time.Time
+	EncryptedToken string
 }
 
 type oauthState struct {
@@ -179,19 +180,19 @@ func (s *Service) HandleCallback(ctx context.Context, code, stateValue string) (
 
 	token, scopes, err := s.exchangeCode(ctx, code, stateValue)
 	if err != nil {
-		return s.callbackRedirectURL(state.RedirectTo, "error", err.Error()), err
+		return s.callbackRedirectURL(state.RedirectTo, "error", "GitHub authorization failed"), err
 	}
 
 	githubUserID, err := s.fetchGitHubUserID(ctx, token)
 	if err != nil {
-		return s.callbackRedirectURL(state.RedirectTo, "error", err.Error()), err
+		return s.callbackRedirectURL(state.RedirectTo, "error", "GitHub authorization failed"), err
 	}
 
 	if err := s.upsertAccount(ctx, state.UserID, githubUserID, token, scopes); err != nil {
 		if errors.Is(err, ErrGitHubAccountLinked) {
 			return s.callbackRedirectURL(state.RedirectTo, "error", "GitHub account is already linked"), err
 		}
-		return s.callbackRedirectURL(state.RedirectTo, "error", "Failed to save GitHub account"), err
+		return s.callbackRedirectURL(state.RedirectTo, "error", "Unable to link GitHub account"), err
 	}
 
 	return s.callbackRedirectURL(state.RedirectTo, "success", "GitHub account connected"), nil
@@ -208,6 +209,15 @@ func (s *Service) AccountStatus(ctx context.Context, userID string) (*AccountSta
 			}, nil
 		}
 		return nil, err
+	}
+
+	if !s.validateGitHubToken(ctx, record.EncryptedToken) {
+		_, _ = s.db.ExecContext(ctx, `DELETE FROM github_accounts WHERE user_id = $1`, userID)
+		return &AccountStatusResponse{
+			Configured:  s.isConfigured(),
+			Connected:   false,
+			TokenScopes: []string{},
+		}, nil
 	}
 
 	connectedAt := record.ConnectedAt
@@ -239,14 +249,41 @@ func (s *Service) Disconnect(ctx context.Context, userID string) error {
 func (s *Service) getAccount(ctx context.Context, userID string) (*accountRecord, error) {
 	var record accountRecord
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT github_user_id, token_scopes, connected_at
+		SELECT github_user_id, token_scopes, connected_at, access_token_encrypted
 		FROM github_accounts
 		WHERE user_id = $1
-	`, userID).Scan(&record.GitHubUserID, &record.TokenScopes, &record.ConnectedAt); err != nil {
+	`, userID).Scan(&record.GitHubUserID, &record.TokenScopes, &record.ConnectedAt, &record.EncryptedToken); err != nil {
 		return nil, err
 	}
 
 	return &record, nil
+}
+
+func (s *Service) validateGitHubToken(ctx context.Context, encryptedToken string) bool {
+	token, err := decryptToken(s.cfg.GitHubTokenSecret, encryptedToken)
+	if err != nil {
+		return false
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubCurrentUserURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return false
+	}
+
+	return true
 }
 
 func (s *Service) upsertAccount(ctx context.Context, userID string, githubUserID int64, accessToken, scopes string) error {
@@ -254,6 +291,9 @@ func (s *Service) upsertAccount(ctx context.Context, userID string, githubUserID
 	if err != nil {
 		return err
 	}
+
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM github_accounts WHERE user_id = $1`, userID)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM github_accounts WHERE github_user_id = $1`, githubUserID)
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO github_accounts (
@@ -265,17 +305,8 @@ func (s *Service) upsertAccount(ctx context.Context, userID string, githubUserID
 			revoked_at
 		)
 		VALUES ($1, $2, $3, $4, now(), NULL)
-		ON CONFLICT (user_id) DO UPDATE
-		SET github_user_id = EXCLUDED.github_user_id,
-			access_token_encrypted = EXCLUDED.access_token_encrypted,
-			token_scopes = EXCLUDED.token_scopes,
-			connected_at = now(),
-			revoked_at = NULL
 	`, userID, githubUserID, encryptedToken, strings.TrimSpace(scopes))
 	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrGitHubAccountLinked
-		}
 		return err
 	}
 

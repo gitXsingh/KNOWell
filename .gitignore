@@ -2,3 +2,12 @@
 unw
 scripts
 docs
+cookies.txt
+backend/cookies.txt
+frontend/dist/
+backend/api.exe
+backend/api.exe~
+*.log
+frontend/.env
+frontend/node_modules/
+node_modules/

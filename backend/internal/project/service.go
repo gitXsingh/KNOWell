@@ -101,7 +101,6 @@ var (
 
 var allowedSourceKeys = map[string]struct{}{
 	"github_repository":      {},
-	"ai_commit_summaries":    {},
 	"manual_notes":           {},
 	"api_documentation":      {},
 	"architecture_decisions": {},

@@ -45,7 +45,10 @@ export default function Login() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">KNOWell</div>
+        <img src="/logo.png" alt="KNOWell" className="auth-brand-img" />
+        <p className="text-muted text-sm" style={{ textAlign: "center", marginBottom: 16 }}>
+          Capture project knowledge from development into structured documentation.
+        </p>
         <div className="flex" style={{ marginBottom: 20, background: "var(--gray-50)", borderRadius: "var(--radius)", padding: 2 }}>
           <button
             className={`btn btn--sm ${mode === "login" ? "btn--primary" : "btn--ghost"}`}

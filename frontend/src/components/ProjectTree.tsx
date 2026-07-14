@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronRight, Folder } from "lucide-react";
-import { useAuth } from "../lib/auth";
 import { request } from "../lib/api";
 import type { Workspace, Project } from "../lib/api";
 
 export default function ProjectTree() {
-  const { workspaceId } = useAuth();
   const loc = useLocation();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [projectsMap, setProjectsMap] = useState<Record<string, Project[]>>({});
@@ -30,7 +28,7 @@ export default function ProjectTree() {
   }, [workspaces.length]);
 
   if (workspaces.length === 0) {
-    return <div className="dim" style={{ padding: "8px 10px", fontSize: 12 }}>No workspaces</div>;
+    return <div className="text-dim" style={{ padding: "8px 10px", fontSize: 12 }}>No workspaces</div>;
   }
 
   return (

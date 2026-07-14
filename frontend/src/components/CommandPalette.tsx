@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Folder, LayoutDashboard, Search, Settings } from "lucide-react";
-import { useAuth } from "../lib/auth";
 import { request } from "../lib/api";
 import type { Workspace, Project } from "../lib/api";
 
@@ -12,7 +11,6 @@ export default function CommandPalette({ onClose }: Props) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const nav = useNavigate();
-  const { workspaceId } = useAuth();
 
   useEffect(() => {
     request<Workspace[]>("/workspaces").then((data) => {
@@ -35,7 +33,7 @@ export default function CommandPalette({ onClose }: Props) {
     ];
     const projects = allProjects.map((p) => ({
       id: p.id,
-      label: `${p.name}`,
+      label: p.name,
       to: `/workspaces/${p.workspace_id}/projects/${p.id}`,
       Icon: Folder,
     }));
@@ -56,7 +54,7 @@ export default function CommandPalette({ onClose }: Props) {
         />
         <div className="palette__list">
           {items.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--stone)" }}>
+            <div style={{ padding: 24, textAlign: "center", color: "var(--gray-500)" }}>
               No results
             </div>
           )}

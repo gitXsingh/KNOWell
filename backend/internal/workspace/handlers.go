@@ -257,15 +257,15 @@ func handleWorkspaceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrJoinRequestAlreadyReviewed):
 		writeError(w, http.StatusConflict, "join_request_reviewed", "Join request has already been reviewed")
 	case errors.Is(err, ErrWorkspaceInvitationExists), errors.Is(err, ErrWorkspaceMemberExists):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
+		writeError(w, http.StatusConflict, "conflict", "This invitation or membership already exists")
 	case errors.Is(err, ErrWorkspaceInvitationMissing), errors.Is(err, ErrWorkspaceMemberMissing):
-		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		writeError(w, http.StatusNotFound, "not_found", "Invitation or membership not found")
 	case errors.Is(err, ErrWorkspaceInvitationInvalid):
-		writeError(w, http.StatusUnprocessableEntity, "invalid_invitation", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "invalid_invitation", "This invitation is invalid or expired")
 	case errors.Is(err, ErrWorkspaceInvitationDenied), errors.Is(err, ErrWorkspaceMemberDenied):
-		writeError(w, http.StatusForbidden, "forbidden", err.Error())
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission to manage invitations or members")
 	case strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "invalid"):
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "The request contains invalid or missing fields")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong")
 	}

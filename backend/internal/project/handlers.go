@@ -10,6 +10,7 @@ import (
 	gh "github.com/gitXsingh/knowell/backend/internal/github"
 	wh "github.com/gitXsingh/knowell/backend/internal/webhook"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
@@ -256,21 +257,21 @@ func handleProjectError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrProjectMissing):
 		writeError(w, http.StatusNotFound, "project_not_found", "Project not found")
 	case errors.Is(err, ErrProjectState) || errors.Is(err, ErrProjectSource):
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "Invalid project configuration")
 	case errors.Is(err, ErrRepositoryDisabled):
 		writeError(w, http.StatusUnprocessableEntity, "repository_disabled", "The github_repository source is not enabled for this project")
 	case errors.Is(err, ErrRepositoryMissing):
 		writeError(w, http.StatusNotFound, "repository_not_found", "No repository is connected to this project")
 	case errors.Is(err, ErrProjectInvitationExists), errors.Is(err, ErrProjectMemberExists):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
+		writeError(w, http.StatusConflict, "conflict", "This invitation or membership already exists")
 	case errors.Is(err, ErrProjectInvitationMissing), errors.Is(err, ErrProjectMemberMissing):
-		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		writeError(w, http.StatusNotFound, "not_found", "Invitation or membership not found")
 	case errors.Is(err, ErrProjectInvitationInvalid):
-		writeError(w, http.StatusUnprocessableEntity, "invalid_invitation", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "invalid_invitation", "This invitation is invalid or expired")
 	case errors.Is(err, ErrProjectInvitationDenied), errors.Is(err, ErrProjectMemberDenied):
-		writeError(w, http.StatusForbidden, "forbidden", err.Error())
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission to manage invitations or members")
 	case errors.Is(err, ErrProjectRoleInvalid):
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "The selected role is invalid")
 	case errors.Is(err, gh.ErrGitHubAccountMissing):
 		writeError(w, http.StatusNotFound, "github_account_missing", "Connect a GitHub account before linking a repository")
 	case errors.Is(err, gh.ErrGitHubRepositoryMissing):
@@ -281,9 +282,18 @@ func handleProjectError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "forbidden", "You do not have access to these webhook events")
 	case errors.Is(err, wh.ErrEventMissing):
 		writeError(w, http.StatusNotFound, "webhook_event_not_found", "Webhook event not found")
+	case errors.Is(err, ErrProjectInvalid):
+		writeError(w, http.StatusBadRequest, "invalid_request", "Owner and repository name are required")
+	case isPGUniqueViolation(err):
+		writeError(w, http.StatusConflict, "repository_already_linked", "This repository is already linked to another project")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong")
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 	}
+}
+
+func isPGUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (s *Service) handleListWebhookEvents(w http.ResponseWriter, r *http.Request) {

@@ -3,7 +3,6 @@ package workspace
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -550,15 +549,6 @@ func generateJoinKey() (string, error) {
 	raw := strings.ToUpper(hex.EncodeToString(bytes))
 	key := joinKeyPrefix + raw[:4] + "-" + raw[4:8] + "-" + raw[8:]
 	return key, nil
-}
-
-func hashJoinKey(key string) string {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

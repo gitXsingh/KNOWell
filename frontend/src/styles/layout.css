@@ -15,7 +15,7 @@
 
 .sidebar__brand {
   height: var(--topbar-h);
-  display: flex; align-items: center;
+  display: flex; align-items: center; justify-content: center;
   gap: var(--space-2);
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--gray-100);
@@ -23,10 +23,13 @@
   overflow: hidden;
 }
 .sidebar__brand-logo {
-  font-family: "Borel", cursive;
-  font-size: 18px;
-  color: var(--gray-900);
-  white-space: nowrap;
+  display: block;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), filter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+.sidebar__brand-logo:hover {
+  transform: scale(1.04) translateY(-1px);
+  filter: drop-shadow(0 8px 20px rgba(22, 136, 69, 0.20));
 }
 
 .sidebar__scroll {
@@ -131,7 +134,6 @@
   max-width: 1100px;
   width: 100%;
 }
-.page-content.wide { max-width: 100%; }
 .page-content__header { margin-bottom: var(--space-6); }
 .page-content__header h1 { margin-bottom: var(--space-1); }
 .page-content__header p { font-size: 14px; }

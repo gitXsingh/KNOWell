@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -48,16 +49,6 @@ type pushPayload struct {
 			Email string `json:"email"`
 		} `json:"author"`
 	} `json:"commits"`
-}
-
-var noopBranches = map[string]bool{
-	"known_noop": true,
-	"known_nop":  true,
-}
-
-func isNoopBranch(ref string) bool {
-	branch := strings.TrimPrefix(ref, "refs/heads/")
-	return noopBranches[branch]
 }
 
 type pullRequestPayload struct {
@@ -222,8 +213,6 @@ func (s *Service) processPush(ctx context.Context, projectID, repositoryID strin
 		return err
 	}
 
-	noop := isNoopBranch(event.Ref)
-
 	for _, commit := range event.Commits {
 		committedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(commit.Timestamp))
 		if err != nil {
@@ -265,7 +254,7 @@ func (s *Service) processPush(ctx context.Context, projectID, repositoryID strin
 			return err
 		}
 
-		if s.timeline != nil && !noop {
+		if s.timeline != nil {
 			var workspaceID string
 			_ = s.db.QueryRowContext(ctx, `SELECT workspace_id FROM projects WHERE id = $1::uuid`, projectID).Scan(&workspaceID)
 			_ = s.timeline.Record(ctx, workspaceID, projectID, "", "commit", "commit", commitID, map[string]any{
@@ -274,9 +263,9 @@ func (s *Service) processPush(ctx context.Context, projectID, repositoryID strin
 			}, "commit:"+repositoryID+":"+strings.TrimSpace(commit.ID))
 		}
 
-		if s.ai != nil && s.isAISourceEnabled(ctx, projectID) && !noop {
+		if s.ai != nil {
 			if err := s.ai.GenerateCommitDraft(ctx, commitID); err != nil {
-				return err
+				log.Printf("[webhook] ai commit draft generation skipped (non-blocking): %v", err)
 			}
 		}
 	}
@@ -293,10 +282,6 @@ func (s *Service) processPullRequest(ctx context.Context, projectID, repositoryI
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return err
 	}
-
-	baseBranch := event.PullRequest.Base.Ref
-	headBranch := event.PullRequest.Head.Ref
-	noop := isNoopBranch(baseBranch) || isNoopBranch(headBranch)
 
 	state := "opened"
 	var mergedAt sql.NullTime
@@ -339,7 +324,7 @@ func (s *Service) processPullRequest(ctx context.Context, projectID, repositoryI
 		return err
 	}
 
-	if s.timeline != nil && !noop {
+	if s.timeline != nil {
 		var workspaceID string
 		_ = s.db.QueryRowContext(ctx, `SELECT workspace_id FROM projects WHERE id = $1::uuid`, projectID).Scan(&workspaceID)
 		eventType := "pr_created"
@@ -353,9 +338,9 @@ func (s *Service) processPullRequest(ctx context.Context, projectID, repositoryI
 		}, eventType+":"+repositoryID+":"+strings.TrimSpace(event.PullRequest.Head.SHA))
 	}
 
-	if s.ai != nil && s.isAISourceEnabled(ctx, projectID) && !noop {
+	if s.ai != nil {
 		if err := s.ai.GeneratePullRequestDraft(ctx, pullRequestID); err != nil {
-			return err
+			log.Printf("[webhook] ai pr draft generation skipped (non-blocking): %v", err)
 		}
 	}
 
@@ -383,12 +368,4 @@ func (s *Service) canAccessProject(ctx context.Context, userID, projectID string
 	return exists
 }
 
-func (s *Service) isAISourceEnabled(ctx context.Context, projectID string) bool {
-	var enabled bool
-	_ = s.db.QueryRowContext(ctx, `
-		SELECT enabled
-		FROM project_sources
-		WHERE project_id = $1 AND source_key = 'ai_commit_summaries'
-	`, projectID).Scan(&enabled)
-	return enabled
-}
+

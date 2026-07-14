@@ -23,7 +23,7 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <span className="sidebar__brand-text sidebar__brand-logo">KNOWell</span>
+        <img src="/logo.png" alt="KNOWell" className="sidebar__brand-logo" style={{ height: 44, width: "auto" }} />
       </div>
 
       <div className="sidebar__scroll">

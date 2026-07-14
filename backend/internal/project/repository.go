@@ -13,9 +13,8 @@ func (s *Service) ListRepositoryOptions(ctx context.Context, userID, projectID, 
 	if !s.canAccessProject(ctx, userID, projectID) {
 		return nil, ErrProjectDenied
 	}
-	if !s.isSourceEnabled(ctx, projectID, "github_repository") {
-		return nil, ErrRepositoryDisabled
-	}
+
+	_ = s.ensureSourceEnabled(ctx, projectID, "github_repository")
 	if s.github == nil {
 		return nil, gh.ErrGitHubNotConfigured
 	}
@@ -35,9 +34,8 @@ func (s *Service) ConnectRepository(ctx context.Context, userID, projectID strin
 	if !s.canEditProject(ctx, userID, projectID) {
 		return nil, ErrProjectDenied
 	}
-	if !s.isSourceEnabled(ctx, projectID, "github_repository") {
-		return nil, ErrRepositoryDisabled
-	}
+
+	_ = s.ensureSourceEnabled(ctx, projectID, "github_repository")
 	if s.github == nil {
 		return nil, gh.ErrGitHubNotConfigured
 	}
@@ -213,6 +211,19 @@ func (s *Service) isSourceEnabled(ctx context.Context, projectID, sourceKey stri
 		return false
 	}
 	return enabled
+}
+
+func (s *Service) ensureSourceEnabled(ctx context.Context, projectID, sourceKey string) error {
+	if _, ok := allowedSourceKeys[sourceKey]; !ok {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO project_sources (project_id, source_key, enabled, config_json)
+		VALUES ($1, $2, true, '{}'::jsonb)
+		ON CONFLICT (project_id, source_key) DO UPDATE
+		SET enabled = true, updated_at = now()
+	`, projectID, sourceKey)
+	return err
 }
 
 func (s *Service) canAccessProject(ctx context.Context, userID, projectID string) bool {

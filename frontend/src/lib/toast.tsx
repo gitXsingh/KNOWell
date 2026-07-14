@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 type ToastType = "success" | "error" | "info" | "warning";
 
@@ -21,15 +21,15 @@ let nextId = 1;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const dismiss = useCallback((id: number) => {
+  function dismiss(id: number) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  }
 
-  const toast = useCallback((message: string, type: ToastType = "info") => {
+  function toast(message: string, type: ToastType = "info") {
     const id = nextId++;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => dismiss(id), 4000);
-  }, [dismiss]);
+  }
 
   return (
     <ToastCtx.Provider value={{ toasts, toast, dismiss }}>

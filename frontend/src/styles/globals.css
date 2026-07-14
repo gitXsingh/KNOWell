@@ -12,7 +12,6 @@
 
   --blue-50: #eef3ff;
   --blue-500: #3461e6;
-  --blue-600: #254fcc;
 
   --green-50: #e7f5ed;
   --green-500: #168845;
@@ -41,7 +40,6 @@
   --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
 
   --sidebar-w: 220px;
-  --sidebar-w-collapsed: 52px;
   --topbar-h: 48px;
 
   --space-1: 4px;
@@ -138,9 +136,7 @@ input, textarea, select {
 .text-mono { font-family: var(--font-mono); }
 .text-sm { font-size: 13px; }
 .text-xs { font-size: 12px; }
-.text-2xs { font-size: 11px; }
-.text-center { text-align: center; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 
 .toast-container {
   position: fixed; bottom: var(--space-6); right: var(--space-6);

@@ -90,9 +90,9 @@ export default function WorkspaceDetail() {
 
       {showForm && (
         <form onSubmit={createProject} className="row gap-2" style={{ marginBottom: "var(--space-4)" }}>
-          <input className="input" placeholder="Project name" value={newName} onChange={(e) => setNewName(e.target.value)} required style={{ flex: 1 }} />
-          <input className="input" placeholder="Description" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} style={{ flex: 1 }} />
-          <button type="submit" className="btn btn--primary btn--sm" disabled={busy}>Create</button>
+          <input className="input" placeholder="Project name" value={newName} onChange={(e) => setNewName(e.target.value)} required style={{ flex: 1 }} aria-label="Project name" />
+          <input className="input" placeholder="Description" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} style={{ flex: 1 }} aria-label="Project description" />
+          <button type="submit" className="btn btn--primary btn--sm" disabled={busy || !newName.trim()}>Create</button>
         </form>
       )}
       {err && <p className="text-sm" style={{ color: "var(--red-500)", marginBottom: "var(--space-2)" }}>{err}</p>}

@@ -32,9 +32,8 @@ type Config struct {
 	GitHubTokenSecret       string
 	GitHubWebhookURL        string
 	CORSAllowedOrigins      []string
-	AIProvider              string
-	OllamaBaseURL           string
-	OllamaModel             string
+	GeminiAPIKey            string
+	GeminiModel             string
 }
 
 func Load() Config {
@@ -84,16 +83,15 @@ func Load() Config {
 		JWTAccessTTL:              accessTTL,
 		GitHubClientID:            getEnv("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret:        getEnv("GITHUB_CLIENT_SECRET", ""),
-		GitHubRedirectURL:         getEnv("GITHUB_REDIRECT_URL", "http://localhost:8080/github/callback"),
-		GitHubFrontendCallbackURL: getEnv("GITHUB_FRONTEND_CALLBACK_URL", "http://localhost:5173/github/callback"),
+		GitHubRedirectURL:         getEnv("GITHUB_REDIRECT_URL", ""),
+		GitHubFrontendCallbackURL: getEnv("GITHUB_FRONTEND_CALLBACK_URL", ""),
 		GitHubScopes:              getEnv("GITHUB_SCOPES", "read:user repo admin:repo_hook"),
 		GitHubStateTTL:            githubStateTTL,
 		GitHubTokenSecret:         githubTokenSecret,
-		GitHubWebhookURL:          getEnv("GITHUB_WEBHOOK_URL", "http://localhost:8080/github/webhook"),
+		GitHubWebhookURL:          getEnv("GITHUB_WEBHOOK_URL", ""),
 		CORSAllowedOrigins:       origins,
-		AIProvider:                getEnv("AI_PROVIDER", "builtin"),
-		OllamaBaseURL:             getEnv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-		OllamaModel:               getEnv("OLLAMA_MODEL", "qwen2.5-coder:7b"),
+		GeminiAPIKey:              getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:               getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
 	}
 }
 

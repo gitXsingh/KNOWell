@@ -1,64 +1,29 @@
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  test-db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5433:5432"
-    profiles:
-      - test
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-
   backend:
     build:
       context: ./backend
     environment:
-      APP_ENV: ${APP_ENV:-development}
+      APP_ENV: ${APP_ENV:-production}
       APP_ADDR: ${APP_ADDR:-":8080"}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       GITHUB_TOKEN_SECRET: ${GITHUB_TOKEN_SECRET}
-      GITHUB_REDIRECT_URL: ${GITHUB_REDIRECT_URL:-http://localhost:8080/github/callback}
-      GITHUB_FRONTEND_CALLBACK_URL: ${GITHUB_FRONTEND_CALLBACK_URL:-http://localhost:3000/github/callback}
-      GITHUB_WEBHOOK_URL: ${GITHUB_WEBHOOK_URL:-http://localhost:8080/github/webhook}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      GITHUB_REDIRECT_URL: ${GITHUB_REDIRECT_URL}
+      GITHUB_FRONTEND_CALLBACK_URL: ${GITHUB_FRONTEND_CALLBACK_URL}
+      GITHUB_WEBHOOK_URL: ${GITHUB_WEBHOOK_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
     ports:
       - "8080:8080"
-    depends_on:
-      - postgres
-      - ollama
 
   frontend:
     build:
       context: ./frontend
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+      VITE_API_BASE: ${VITE_API_BASE}
     ports:
       - "3000:3000"
     depends_on:
       - backend
-
-volumes:
-  pgdata:
-  ollama:

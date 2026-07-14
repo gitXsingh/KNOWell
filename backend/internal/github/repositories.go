@@ -218,7 +218,7 @@ func (s *Service) doGitHubJSON(req *http.Request, accessToken string) ([]byte, e
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github request failed")
+		return nil, fmt.Errorf("github request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -231,7 +231,36 @@ func (s *Service) doGitHubJSON(req *http.Request, accessToken string) ([]byte, e
 		return nil, ErrGitHubRepositoryMissing
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("github request failed")
+		var ghErr struct {
+			Message string `json:"message"`
+			Errors  []struct {
+				Resource string `json:"resource"`
+				Field    string `json:"field"`
+				Code     string `json:"code"`
+				Message  string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := json.Unmarshal(body, &ghErr); err == nil {
+			if ghErr.Message != "" {
+				if len(ghErr.Errors) > 0 {
+					var details []string
+					for _, e := range ghErr.Errors {
+						msg := e.Message
+						if msg == "" {
+							msg = fmt.Sprintf("%s %s", e.Resource, e.Code)
+						}
+						if e.Field != "" {
+							details = append(details, fmt.Sprintf("%s: %s", e.Field, msg))
+						} else {
+							details = append(details, msg)
+						}
+					}
+					return nil, fmt.Errorf("github api error (status %d): %s (%s)", resp.StatusCode, ghErr.Message, strings.Join(details, "; "))
+				}
+				return nil, fmt.Errorf("github api error (status %d): %s", resp.StatusCode, ghErr.Message)
+			}
+		}
+		return nil, fmt.Errorf("github api error (status %d)", resp.StatusCode)
 	}
 
 	return body, nil

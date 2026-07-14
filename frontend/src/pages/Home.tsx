@@ -13,14 +13,14 @@ export default function Home() {
   return (
     <div className="auth-page">
       <div className="auth-card" style={{ maxWidth: 420 }}>
-        <div className="auth-brand">KNOWell</div>
-        <div className="auth-title">Welcome</div>
+        <img src="/logo.png" alt="KNOWell" className="auth-brand-img" />
+        <div className="auth-title">Capture &rarr; Review &rarr; Store &rarr; Search</div>
         <p className="text-muted" style={{ textAlign: "center", marginBottom: 24, fontSize: 13, lineHeight: 1.5 }}>
-          Choose how you want to get started
+          A developer-first platform that continuously captures project knowledge from day-to-day development and transforms it into structured, searchable documentation.
         </p>
 
         <div className="stack" style={{ gap: 10 }}>
-          <button className="card card--hover" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/login")}>
+          <button className="card" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/login")}>
             <div className="flex items-center gap-3">
               <div className="avatar avatar--lg" style={{ background: "linear-gradient(135deg, var(--blue-500), #7aa7f5)" }}>P</div>
               <div>
@@ -30,7 +30,7 @@ export default function Home() {
             </div>
           </button>
 
-          <button className="card card--hover" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/team/create")}>
+          <button className="card card" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/team/create")}>
             <div className="flex items-center gap-3">
               <div className="avatar avatar--lg" style={{ background: "linear-gradient(135deg, var(--green-500), #34b85f)" }}>T</div>
               <div>
@@ -40,7 +40,7 @@ export default function Home() {
             </div>
           </button>
 
-          <button className="card card--hover" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/team/join")}>
+          <button className="card card" style={{ textAlign: "left", width: "100%", padding: 14, cursor: "pointer", borderRadius: "var(--radius-md)" }} onClick={() => nav("/team/join")}>
             <div className="flex items-center gap-3">
               <div className="avatar avatar--lg" style={{ background: "linear-gradient(135deg, var(--amber-500), #f0b84d)" }}>J</div>
               <div>
@@ -89,7 +89,7 @@ export function CreateTeam() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">KNOWell</div>
+        <img src="/logo.png" alt="KNOWell" className="auth-brand-img" />
         <div className="auth-title">Create a Team Space</div>
         <form onSubmit={handleCreate}>
           <div className="field">
@@ -100,7 +100,7 @@ export function CreateTeam() {
             You will be the admin. An invite key will be generated — share it with your team.
           </p>
           {err && <p style={{ color: "var(--red-500)", fontSize: 12, marginBottom: 12 }}>{err}</p>}
-          <button type="submit" className="btn btn--primary btn--block" disabled={busy}>
+          <button type="submit" className="btn btn--primary btn--block" disabled={busy || !name.trim()}>
             {busy ? "Creating..." : "Create Team Space"}
           </button>
           <div className="auth-foot">
@@ -146,7 +146,7 @@ export function JoinTeam() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">KNOWell</div>
+        <img src="/logo.png" alt="KNOWell" className="auth-brand-img" />
         <div className="auth-title">Join a Team Space</div>
         <form onSubmit={handleJoin}>
           <div className="field">
@@ -154,7 +154,7 @@ export function JoinTeam() {
             <input className="input" placeholder="TEAM-XXXX-XXXX-XXXX" value={key} onChange={(e) => setKey(e.target.value)} required autoFocus />
           </div>
           {err && <p style={{ color: "var(--red-500)", fontSize: 12, marginBottom: 12 }}>{err}</p>}
-          <button type="submit" className="btn btn--primary btn--block" disabled={busy}>
+          <button type="submit" className="btn btn--primary btn--block" disabled={busy || !key.trim()}>
             {busy ? "Sending..." : "Send Join Request"}
           </button>
           <div className="auth-foot">

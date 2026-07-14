@@ -7,53 +7,62 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/common/config"
 )
 
-const ollamaRequestTimeout = 120 * time.Second
+const geminiRequestTimeout = 60 * time.Second
 
-type ollamaProvider struct {
-	baseURL string
-	model   string
-	client  *http.Client
+type geminiProvider struct {
+	apiKey string
+	model  string
+	client *http.Client
 }
 
 func newProvider(cfg config.Config) Provider {
-	if cfg.AIProvider == "ollama" {
-		return &ollamaProvider{
-			baseURL: strings.TrimRight(cfg.OllamaBaseURL, "/"),
-			model:   cfg.OllamaModel,
-			client:  &http.Client{Timeout: ollamaRequestTimeout},
+	if cfg.GeminiAPIKey != "" {
+		model := cfg.GeminiModel
+		if model == "" {
+			model = "gemini-2.0-flash"
+		}
+		return &geminiProvider{
+			apiKey: cfg.GeminiAPIKey,
+			model:  model,
+			client: &http.Client{Timeout: geminiRequestTimeout},
 		}
 	}
 	return builtinProvider{}
 }
 
-type ollamaChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type geminiContent struct {
+	Parts []geminiPart `json:"parts"`
 }
 
-type ollamaChatRequest struct {
-	Model    string              `json:"model"`
-	Messages []ollamaChatMessage `json:"messages"`
-	Stream   bool                `json:"stream"`
+type geminiPart struct {
+	Text string `json:"text"`
 }
 
-type ollamaChatResponse struct {
-	Message ollamaChatMessage `json:"message"`
-	Done    bool              `json:"done"`
+type geminiRequest struct {
+	Contents []geminiContent `json:"contents"`
 }
 
-func (o *ollamaProvider) Name() string {
-	return "ollama"
+type geminiResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
 }
 
-func (o *ollamaProvider) GenerateCommitDraft(ctx context.Context, input CommitInput) (*DraftOutput, error) {
+func (g *geminiProvider) Name() string {
+	return "gemini"
+}
+
+func (g *geminiProvider) GenerateCommitDraft(ctx context.Context, input CommitInput) (*DraftOutput, error) {
 	prompt := fmt.Sprintf(`You are a technical documentation assistant analyzing a git commit.
 
 First, determine if this change is meaningful:
@@ -77,10 +86,10 @@ Respond with ONLY valid JSON in this format:
 If importance is 0, return: {"importance":0}`,
 		trimSHA(input.SHA), safeAuthor(input.AuthorName, input.AuthorEmail), input.AuthorEmail, input.Message)
 
-	return o.generate(ctx, prompt, map[string]any{"source": "commit", "sha": input.SHA})
+	return g.generate(ctx, prompt, map[string]any{"source": "commit", "sha": input.SHA})
 }
 
-func (o *ollamaProvider) GeneratePullRequestDraft(ctx context.Context, input PullRequestInput) (*DraftOutput, error) {
+func (g *geminiProvider) GeneratePullRequestDraft(ctx context.Context, input PullRequestInput) (*DraftOutput, error) {
 	prompt := fmt.Sprintf(`You are a technical documentation assistant analyzing a pull request.
 
 First, determine if this change is meaningful:
@@ -106,51 +115,55 @@ Respond with ONLY valid JSON in this format:
 If importance is 0, return: {"importance":0}`,
 		input.Number, input.Title, input.Description, input.BaseBranch, input.State)
 
-	return o.generate(ctx, prompt, map[string]any{"source": "pull_request", "number": input.Number})
+	return g.generate(ctx, prompt, map[string]any{"source": "pull_request", "number": input.Number})
 }
 
-func (o *ollamaProvider) generate(ctx context.Context, prompt string, rawInput map[string]any) (*DraftOutput, error) {
-	reqBody := ollamaChatRequest{
-		Model: o.model,
-		Messages: []ollamaChatMessage{
-			{Role: "system", Content: "You are a helpful AI that analyzes code changes and generates structured knowledge drafts. Always respond with valid JSON only, no other text."},
-			{Role: "user", Content: prompt},
+func (g *geminiProvider) generate(ctx context.Context, prompt string, rawInput map[string]any) (*DraftOutput, error) {
+	reqBody := geminiRequest{
+		Contents: []geminiContent{
+			{Parts: []geminiPart{{Text: prompt}}},
 		},
-		Stream: false,
 	}
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("ollama: marshal request: %w", err)
+		return nil, fmt.Errorf("gemini: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/api/chat", bytes.NewReader(body))
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", g.model)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("ollama: create request: %w", err)
+		return nil, fmt.Errorf("gemini: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Goog-API-Key", g.apiKey)
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := g.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("ollama: request failed: %w", err)
+		return nil, fmt.Errorf("gemini: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ollama: read response: %w", err)
+		return nil, fmt.Errorf("gemini: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama: API error (status %d): %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("gemini: API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	var chatResp ollamaChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return nil, fmt.Errorf("ollama: parse response: %w", err)
+	var geminiResp geminiResponse
+	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
+		return nil, fmt.Errorf("gemini: parse response: %w", err)
 	}
 
-	return parseDraftOutput(chatResp.Message.Content, rawInput)
+	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("gemini: empty response")
+	}
+
+	text := geminiResp.Candidates[0].Content.Parts[0].Text
+	return parseDraftOutput(text, rawInput)
 }
 
 func parseDraftOutput(content string, rawInput map[string]any) (*DraftOutput, error) {
@@ -169,7 +182,7 @@ func parseDraftOutput(content string, rawInput map[string]any) (*DraftOutput, er
 		AgentsMd     string `json:"agents_md"`
 	}
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("ollama: parse draft output: %w", err)
+		return nil, fmt.Errorf("gemini: parse draft output: %w", err)
 	}
 
 	if result.Importance > 4 {
@@ -237,7 +250,7 @@ func (builtinProvider) GeneratePullRequestDraft(ctx context.Context, input PullR
 
 	title := strings.TrimSpace(input.Title)
 	if title == "" {
-		title = "Pull request #" + intToString(input.Number)
+		title = "Pull request #" + fmt.Sprintf("%d", input.Number)
 	}
 
 	importance := 3
@@ -247,7 +260,7 @@ func (builtinProvider) GeneratePullRequestDraft(ctx context.Context, input PullR
 		reason = "Merged pull requests usually represent reviewed project knowledge worth preserving."
 	}
 
-	summary := "Pull request #" + intToString(input.Number) + " on " + input.BaseBranch + " is " + input.State + ". " + strings.TrimSpace(input.Description)
+	summary := "Pull request #" + fmt.Sprintf("%d", input.Number) + " on " + input.BaseBranch + " is " + input.State + ". " + strings.TrimSpace(input.Description)
 	if strings.TrimSpace(input.MergedByName) != "" {
 		summary += " Merged by " + input.MergedByName + "."
 	}
@@ -287,6 +300,4 @@ func safeAuthor(name, email string) string {
 	return "unknown author"
 }
 
-func intToString(value int) string {
-	return strconv.Itoa(value)
-}
+

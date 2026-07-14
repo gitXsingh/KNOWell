@@ -68,6 +68,14 @@ export interface Repository {
   webhook_url?: string;
 }
 
+export interface RepositorySummary {
+  owner: string;
+  repo_name: string;
+  full_name: string;
+  default_branch: string;
+  private: boolean;
+}
+
 export interface KnowledgeItem {
   id: string;
   project_id: string;
@@ -96,12 +104,13 @@ export interface Draft {
   pull_request_id?: string;
   suggested_title: string;
   summary: string;
-  content: string;
+  source_type: string;
   decision_body: string;
   agents_md: string;
   importance: number;
   status: string;
   reason?: string;
+  raw_input_json?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -148,22 +157,28 @@ export interface GitHubStatus {
 
 const BASE = (import.meta.env?.VITE_API_BASE ?? "").replace(/\/$/, "");
 
-async function request<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
+async function request<T = unknown>(path: string, opts: Omit<RequestInit, 'body'> & { body?: unknown } = {}): Promise<T> {
   const url = BASE ? `${BASE}${path.startsWith("/") ? path : `/${path}`}` : path;
+  const { body, ...rest } = opts;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(opts.headers as Record<string, string> || {}),
+    ...(rest.headers as Record<string, string> || {}),
   };
   const res = await fetch(url, {
     credentials: "include",
-    ...opts,
+    ...rest,
     headers,
-    body: opts.body && typeof opts.body !== "string" ? JSON.stringify(opts.body) : opts.body,
+    body: body && typeof body !== "string" ? JSON.stringify(body) : (body as BodyInit | undefined),
   });
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const msg = data?.error?.message || data?.error || data?.message || res.statusText || "Request failed";
+    const d = data as Record<string, unknown> | null;
+    const err = d?.error;
+    const msg = (typeof err === 'object' && err ? (err as Record<string, unknown>).message as string : err as string)
+      || d?.message as string
+      || res.statusText
+      || "Request failed";
     throw new Error(msg);
   }
   return data as T;
@@ -186,4 +201,37 @@ function fmtDate(v: string | undefined | null): string {
   }
 }
 
-export { request, fmtDate };
+const EVENT_LABELS: Record<string, string> = {
+  repository_connected: "Repository connected",
+  repository_disconnected: "Repository disconnected",
+  webhook_received: "Push received",
+  pull_request_merged: "Pull request merged",
+  pull_request_opened: "Pull request opened",
+  draft_generated: "AI draft generated",
+  knowledge_approved: "Knowledge approved",
+  knowledge_edited: "Knowledge edited",
+  member_joined: "Team member joined",
+  member_invited: "Team member invited",
+  draft_approved: "Knowledge approved",
+  project_created: "Project created",
+};
+
+function humanEvent(event_type: string, payload?: Record<string, unknown>): string {
+  const label = EVENT_LABELS[event_type];
+  if (label) return label;
+  if (payload?.title && typeof payload.title === "string") return payload.title;
+  return event_type.replace(/_/g, " ");
+}
+
+function getSourceLabel(item: KnowledgeItem): string {
+  if (item.repository_id) return "GitHub";
+  return "Manual";
+}
+
+function getCategoryLabel(item: KnowledgeItem): string {
+  if (item.commit_id) return "Commit";
+  if (item.pull_request_id) return "Pull Request";
+  return "General";
+}
+
+export { request, fmtDate, humanEvent, getSourceLabel, getCategoryLabel };
