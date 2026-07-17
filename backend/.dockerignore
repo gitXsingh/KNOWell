@@ -1,0 +1,5 @@
+api.exe
+api.exe~
+.env
+.git
+internal/**/*_test.go

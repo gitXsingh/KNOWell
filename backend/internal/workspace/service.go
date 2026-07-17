@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gitXsingh/knowell/backend/internal/common/validate"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -138,10 +139,10 @@ func (s *Service) List(ctx context.Context, userID string) ([]Workspace, error) 
 }
 
 func (s *Service) Create(ctx context.Context, userID string, req WorkspaceRequest) (*Workspace, error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return nil, fmt.Errorf("workspace name is required")
+	if err := validate.Name(req.Name, 200); err != nil {
+		return nil, err
 	}
+	name := strings.TrimSpace(req.Name)
 
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/ai"
 	"github.com/gitXsingh/knowell/backend/internal/auth"
 	"github.com/gitXsingh/knowell/backend/internal/common/config"
+	"github.com/gitXsingh/knowell/backend/internal/common/ratelimit"
 	"github.com/gitXsingh/knowell/backend/internal/github"
 	"github.com/gitXsingh/knowell/backend/internal/knowledge"
 	"github.com/gitXsingh/knowell/backend/internal/project"
@@ -53,6 +55,7 @@ func New(cfg config.Config, database *sql.DB) *Server {
 			"http://127.0.0.1:8080",
 		}
 	}
+	router.Use(recoveryMiddleware)
 	router.Use(corsMiddleware(origins))
 	router.Use(requestLogger)
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -63,11 +66,12 @@ func New(cfg config.Config, database *sql.DB) *Server {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(aiService.Status())
 	})
-	router.Route("/auth", authService.Routes)
+	router.With(bodySizeLimit(1 << 20), ratelimit.New(5, 10).Middleware).Route("/auth", authService.Routes)
 	router.Route("/github", func(r chi.Router) {
+		r.Use(bodySizeLimit(10 << 20), ratelimit.New(10, 20).Middleware)
 		githubService.Routes(r, authService.Middleware)
 	})
-	router.Route("/workspaces", func(r chi.Router) {
+	router.With(bodySizeLimit(1 << 20), ratelimit.New(30, 50).Middleware).Route("/workspaces", func(r chi.Router) {
 		workspaceService.Routes(r, authService.Middleware)
 		r.Route("/{workspaceID}/projects", func(r chi.Router) {
 			projectService.Routes(r, authService.Middleware)
@@ -104,6 +108,20 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.http.Shutdown(ctx)
 }
 
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				stack := make([]byte, 4096)
+				n := runtime.Stack(stack, false)
+				log.Printf("[PANIC] %s %s: %v\n%s", r.Method, r.URL.Path, rec, stack[:n])
+				http.Error(w, `{"error":{"code":"internal_error","message":"Something went wrong"}}`, http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -135,6 +153,15 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 				return
 			}
 
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func bodySizeLimit(limit int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			next.ServeHTTP(w, r)
 		})
 	}

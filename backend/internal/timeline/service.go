@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/auth"
+	"github.com/gitXsingh/knowell/backend/internal/common/pagination"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -76,7 +77,7 @@ func (s *Service) Record(ctx context.Context, workspaceID, projectID, actorID, e
 	return err
 }
 
-func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID string) ([]EventResponse, error) {
+func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID string, p pagination.Params) ([]EventResponse, error) {
 	if !s.canAccessProject(ctx, userID, projectID) {
 		return nil, fmt.Errorf("forbidden")
 	}
@@ -86,13 +87,14 @@ func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID strin
 		FROM activity_logs
 		WHERE project_id = $1
 		ORDER BY created_at DESC
-	`, projectID)
+		LIMIT $2 OFFSET $3
+	`, projectID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	events := make([]EventResponse, 0)
+	events := make([]EventResponse, 0, p.Limit)
 	for rows.Next() {
 		var (
 			record     Event
@@ -156,7 +158,7 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := chi.URLParam(r, "projectID")
-	events, err := s.ListProjectEvents(r.Context(), userID, projectID)
+	events, err := s.ListProjectEvents(r.Context(), userID, projectID, pagination.FromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusForbidden, "forbidden", "You do not have access to this timeline")
 		return

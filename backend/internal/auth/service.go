@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/common/config"
+	"github.com/gitXsingh/knowell/backend/internal/common/validate"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -72,8 +72,19 @@ func (s *Service) Routes(router chi.Router) {
 }
 
 func (s *Service) Register(ctx context.Context, req RegisterRequest) (*SessionResponse, error) {
-	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Password) == "" || strings.TrimSpace(req.FullName) == "" {
-		return nil, fmt.Errorf("missing required fields")
+	if err := validate.Email(req.Email); err != nil {
+		return nil, err
+	}
+	if err := validate.Password(req.Password); err != nil {
+		return nil, err
+	}
+	if err := validate.Name(req.FullName, 200); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.WorkspaceName) != "" {
+		if err := validate.Name(req.WorkspaceName, 200); err != nil {
+			return nil, err
+		}
 	}
 
 	passwordHash, err := HashPassword(req.Password)

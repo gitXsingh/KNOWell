@@ -68,8 +68,8 @@ func (s *Service) handleError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect")
 	case errors.Is(err, ErrEmailExists):
 		writeError(w, http.StatusConflict, "email_exists", "An account with that email already exists")
-	case strings.Contains(err.Error(), "missing required fields"):
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "Please fill in all required fields")
+	case strings.Contains(err.Error(), "required"):
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong")
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gitXsingh/knowell/backend/internal/auth"
+	"github.com/gitXsingh/knowell/backend/internal/common/pagination"
 	gh "github.com/gitXsingh/knowell/backend/internal/github"
 	wh "github.com/gitXsingh/knowell/backend/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -308,7 +309,7 @@ func (s *Service) handleListWebhookEvents(w http.ResponseWriter, r *http.Request
 	}
 
 	projectID := chi.URLParam(r, "projectID")
-	events, err := s.webhook.ListProjectEvents(r.Context(), userID, projectID)
+	events, err := s.webhook.ListProjectEvents(r.Context(), userID, projectID, pagination.FromRequest(r))
 	if err != nil {
 		handleProjectError(w, err)
 		return

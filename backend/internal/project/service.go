@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/ai"
+	"github.com/gitXsingh/knowell/backend/internal/common/validate"
 	gh "github.com/gitXsingh/knowell/backend/internal/github"
 	"github.com/gitXsingh/knowell/backend/internal/knowledge"
 	"github.com/gitXsingh/knowell/backend/internal/search"
@@ -190,10 +191,10 @@ func (s *Service) Create(ctx context.Context, userID, workspaceID string, req Pr
 		return nil, ErrProjectDenied
 	}
 
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return nil, fmt.Errorf("project name is required")
+	if err := validate.Name(req.Name, 200); err != nil {
+		return nil, err
 	}
+	name := strings.TrimSpace(req.Name)
 
 	slug := slugify(req.Slug)
 	if slug == "" {

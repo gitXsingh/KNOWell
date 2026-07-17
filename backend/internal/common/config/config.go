@@ -2,19 +2,11 @@ package config
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"log"
 	"os"
 	"strings"
 	"time"
 )
-
-func generateRandomSecret() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
 
 type Config struct {
 	Environment             string
@@ -60,18 +52,16 @@ func Load() Config {
 		}
 	}
 
-	jwtSecret := getEnv("JWT_SECRET", "")
-	if jwtSecret == "" {
-		jwtSecret = generateRandomSecret()
-		log.Printf("[WARN] JWT_SECRET not set — generated temporary random secret. Sessions will be invalidated on restart.")
+	jwtSecret, ok := os.LookupEnv("JWT_SECRET")
+	if !ok || jwtSecret == "" {
+		log.Fatal("[FATAL] JWT_SECRET is required. Set it in the environment or .env file.")
 	}
-	githubTokenSecret := getEnv("GITHUB_TOKEN_SECRET", "")
-	if githubTokenSecret == "" {
-		githubTokenSecret = generateRandomSecret()
-		log.Printf("[WARN] GITHUB_TOKEN_SECRET not set — generated temporary random secret. GitHub tokens will be unrecoverable on restart.")
+	githubTokenSecret, ok := os.LookupEnv("GITHUB_TOKEN_SECRET")
+	if !ok || githubTokenSecret == "" {
+		log.Fatal("[FATAL] GITHUB_TOKEN_SECRET is required. Set it in the environment or .env file.")
 	}
 	if githubTokenSecret == jwtSecret {
-		log.Printf("[WARN] GITHUB_TOKEN_SECRET equals JWT_SECRET — these should be different secrets.")
+		log.Fatal("[FATAL] GITHUB_TOKEN_SECRET and JWT_SECRET must be different secrets.")
 	}
 
 	return Config{

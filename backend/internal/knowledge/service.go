@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gitXsingh/knowell/backend/internal/auth"
+	"github.com/gitXsingh/knowell/backend/internal/common/pagination"
 	"github.com/gitXsingh/knowell/backend/internal/timeline"
 	"github.com/go-chi/chi/v5"
 )
@@ -66,7 +67,7 @@ func (s *Service) Routes(router chi.Router, authMiddleware func(http.Handler) ht
 	router.With(authMiddleware).Post("/promote", s.handlePromote)
 }
 
-func (s *Service) List(ctx context.Context, userID, projectID string) ([]KnowledgeItemResponse, error) {
+func (s *Service) List(ctx context.Context, userID, projectID string, p pagination.Params) ([]KnowledgeItemResponse, error) {
 	if !s.canAccessProject(ctx, userID, projectID) {
 		return nil, ErrKnowledgeDenied
 	}
@@ -76,13 +77,14 @@ func (s *Service) List(ctx context.Context, userID, projectID string) ([]Knowled
 		FROM knowledge_items
 		WHERE project_id = $1
 		ORDER BY created_at DESC
-	`, projectID)
+		LIMIT $2 OFFSET $3
+	`, projectID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	items := make([]KnowledgeItemResponse, 0)
+	items := make([]KnowledgeItemResponse, 0, p.Limit)
 	for rows.Next() {
 		item, err := scanKnowledge(rows)
 		if err != nil {
@@ -251,12 +253,10 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 			status,
 			created_by_user_id,
 			approved_by_user_id,
-			approved_at,
-			search_vector
+			approved_at
 		)
 		VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $11, now(),
-			to_tsvector('english', coalesce($5, '') || ' ' || coalesce($6, '') || ' ' || coalesce($7, ''))
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $11, now()
 		)
 		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
 	`, projectID, repositoryID, commitID, pullRequestID, title, summary, body, decisionBody, agentsMd, importance, userID)
@@ -378,7 +378,7 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := chi.URLParam(r, "projectID")
-	items, err := s.List(r.Context(), userID, projectID)
+	items, err := s.List(r.Context(), userID, projectID, pagination.FromRequest(r))
 	if err != nil {
 		handleKnowledgeError(w, err)
 		return

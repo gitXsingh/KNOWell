@@ -12,6 +12,7 @@ import (
 
 	"github.com/gitXsingh/knowell/backend/internal/auth"
 	"github.com/gitXsingh/knowell/backend/internal/common/config"
+	"github.com/gitXsingh/knowell/backend/internal/common/pagination"
 	"github.com/gitXsingh/knowell/backend/internal/timeline"
 	"github.com/go-chi/chi/v5"
 )
@@ -144,7 +145,7 @@ func (s *Service) Routes(router chi.Router, authMiddleware func(http.Handler) ht
 	router.With(authMiddleware).Patch("/{draftID}", s.handleReview)
 }
 
-func (s *Service) List(ctx context.Context, userID, projectID string) ([]DraftResponse, error) {
+func (s *Service) List(ctx context.Context, userID, projectID string, p pagination.Params) ([]DraftResponse, error) {
 	if !s.canAccessProject(ctx, userID, projectID) {
 		return nil, ErrDraftDenied
 	}
@@ -154,13 +155,14 @@ func (s *Service) List(ctx context.Context, userID, projectID string) ([]DraftRe
 		FROM ai_drafts
 		WHERE project_id = $1
 		ORDER BY id DESC
-	`, projectID)
+		LIMIT $2 OFFSET $3
+	`, projectID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	drafts := make([]DraftResponse, 0)
+	drafts := make([]DraftResponse, 0, p.Limit)
 	for rows.Next() {
 		draft, err := scanDraft(rows)
 		if err != nil {
@@ -500,7 +502,7 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := chi.URLParam(r, "projectID")
-	drafts, err := s.List(r.Context(), userID, projectID)
+	drafts, err := s.List(r.Context(), userID, projectID, pagination.FromRequest(r))
 	if err != nil {
 		handleAIError(w, err)
 		return

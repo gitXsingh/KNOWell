@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gitXsingh/knowell/backend/internal/common/pagination"
 	"github.com/gitXsingh/knowell/backend/internal/timeline"
 )
 
@@ -144,7 +145,7 @@ func (s *Service) ProcessPendingProjectEvents(ctx context.Context, projectID str
 	return rows.Err()
 }
 
-func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID string) ([]EventRecord, error) {
+func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID string, p pagination.Params) ([]EventRecord, error) {
 	if !s.canAccessProject(ctx, userID, projectID) {
 		return nil, ErrEventDenied
 	}
@@ -155,13 +156,14 @@ func (s *Service) ListProjectEvents(ctx context.Context, userID, projectID strin
 		JOIN repositories r ON r.id = we.repository_id
 		WHERE r.project_id = $1
 		ORDER BY we.received_at DESC
-	`, projectID)
+		LIMIT $2 OFFSET $3
+	`, projectID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	events := make([]EventRecord, 0)
+	events := make([]EventRecord, 0, p.Limit)
 	for rows.Next() {
 		var record EventRecord
 		if err := rows.Scan(&record.ID, &record.RepositoryID, &record.GitHubDeliveryID, &record.EventType, &record.Action, &record.ReceivedAt, &record.ProcessedAt, &record.ProcessingStatus, &record.ErrorMessage); err != nil {
