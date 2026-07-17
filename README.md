@@ -10,7 +10,6 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/github/license/gitXsingh/knowell?style=flat-square&color=blue" alt="License"></a>
   <a href="#"><img src="https://img.shields.io/github/stars/gitXsingh/knowell?style=flat-square" alt="Stars"></a>
   <a href="#"><img src="https://img.shields.io/github/forks/gitXsingh/knowell?style=flat-square" alt="Forks"></a>
   <a href="#"><img src="https://img.shields.io/github/issues/gitXsingh/knowell?style=flat-square" alt="Issues"></a>
