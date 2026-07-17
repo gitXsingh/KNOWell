@@ -16,10 +16,8 @@
   <a href="#"><img src="https://img.shields.io/github/issues-pr/gitXsingh/knowell?style=flat-square" alt="Pull Requests"></a>
   <a href="#"><img src="https://img.shields.io/github/last-commit/gitXsingh/knowell?style=flat-square" alt="Last Commit"></a>
   <a href="#"><img src="https://img.shields.io/github/contributors/gitXsingh/knowell?style=flat-square" alt="Contributors"></a>
-  <a href="#"><img src="https://img.shields.io/github/repo-size/gitXsingh/knowell?style=flat-square" alt="Repository Size"></a>
-  <a href="#"><img src="https://img.shields.io/github/commit-activity/m/gitXsingh/knowell?style=flat-square" alt="Commit Activity"></a>
-  <a href="#"><img src="https://img.shields.io/github/v/release/gitXsingh/knowell?style=flat-square" alt="Release"></a>
-  <a href="#"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build Status"></a>
+
+
 </p>
 
 ---
