@@ -155,7 +155,7 @@ export interface GitHubStatus {
   connected_at?: string;
 }
 
-const BASE = (import.meta.env?.VITE_API_BASE ?? "https://knowell-7pyh.onrender.com").replace(/\/$/, "");
+const BASE = (import.meta.env?.VITE_API_BASE ?? "https://knowell-7pyh.onrender.com").replace(/\/+$/, "");
 
 async function request<T = unknown>(path: string, opts: Omit<RequestInit, 'body'> & { body?: unknown } = {}): Promise<T> {
   const url = BASE ? `${BASE}${path.startsWith("/") ? path : `/${path}`}` : path;
