@@ -152,14 +152,14 @@ func (s *Service) Edit(ctx context.Context, userID, projectID, knowledgeID strin
 	return &item, nil
 }
 
-func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, draftID string) (*KnowledgeItemResponse, error) {
+func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, draftID string) error {
 	if !s.canReviewProject(ctx, userID, projectID) {
-		return nil, ErrKnowledgeDenied
+		return ErrKnowledgeDenied
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -181,13 +181,13 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 		WHERE id = $1 AND project_id = $2
 	`, draftID, projectID).Scan(&repositoryID, &commitID, &pullRequestID, &status, &title, &summary, &importance, &reason, &decisionBody, &agentsMd); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrKnowledgeMissing
+			return ErrKnowledgeMissing
 		}
-		return nil, err
+		return err
 	}
 
 	if status != "approved" {
-		return nil, ErrDraftNotApproved
+		return ErrDraftNotApproved
 	}
 
 	var existingID string
@@ -204,22 +204,18 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 			WHERE id = $1
 		`, existingID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer rows.Close()
 		if rows.Next() {
-			item, err := scanKnowledge(rows)
-			if err != nil {
-				return nil, err
+			if _, err := scanKnowledge(rows); err != nil {
+				return err
 			}
-			if err := tx.Commit(); err != nil {
-				return nil, err
-			}
-			return &item, nil
+			return tx.Commit()
 		}
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return err
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		var kiID string
@@ -265,15 +261,15 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
 	`, projectID, repositoryID, commitID, pullRequestID, title, summary, body, decisionBody, agentsMd, importance, userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 	if !rows.Next() {
-		return nil, ErrKnowledgeMissing
+		return ErrKnowledgeMissing
 	}
 	item, err := scanKnowledge(rows)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var workspaceID string
@@ -283,14 +279,14 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 			"draft_id": draftID,
 			"title":    item.Title,
 		}, "draft-approved:"+draftID+":knowledge"); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return err
 	}
-	return &item, nil
+	return nil
 }
 
 func (s *Service) canAccessProject(ctx context.Context, userID, projectID string) bool {
@@ -439,12 +435,11 @@ func (s *Service) handlePromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := chi.URLParam(r, "projectID")
-	item, err := s.PromoteApprovedDraft(r.Context(), userID, projectID, req.DraftID)
-	if err != nil {
+	if err := s.PromoteApprovedDraft(r.Context(), userID, projectID, req.DraftID); err != nil {
 		handleKnowledgeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, item)
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "promoted"})
 }
 
 func handleKnowledgeError(w http.ResponseWriter, err error) {

@@ -22,10 +22,15 @@ type Provider interface {
 	GeneratePullRequestDraft(ctx context.Context, input PullRequestInput) (*DraftOutput, error)
 }
 
+type KnowledgePromoter interface {
+	PromoteApprovedDraft(ctx context.Context, userID, projectID, draftID string) error
+}
+
 type Service struct {
-	db       *sql.DB
-	provider Provider
-	timeline *timeline.Service
+	db         *sql.DB
+	provider   Provider
+	timeline   *timeline.Service
+	knowledge  KnowledgePromoter
 }
 
 type Draft struct {
@@ -112,11 +117,12 @@ var (
 	ErrDraftState   = errors.New("invalid draft state")
 )
 
-func NewService(database *sql.DB, cfg config.Config, timelineService *timeline.Service) *Service {
+func NewService(database *sql.DB, cfg config.Config, timelineService *timeline.Service, knowledge KnowledgePromoter) *Service {
 	return &Service{
-		db:       database,
-		provider: newProvider(cfg),
-		timeline: timelineService,
+		db:        database,
+		provider:  newProvider(cfg),
+		timeline:  timelineService,
+		knowledge: knowledge,
 	}
 }
 
@@ -221,6 +227,13 @@ func (s *Service) Review(ctx context.Context, userID, projectID, draftID string,
 	if err != nil {
 		return nil, err
 	}
+
+	if status == "approved" && s.knowledge != nil {
+		if err := s.knowledge.PromoteApprovedDraft(ctx, userID, projectID, draftID); err != nil {
+			return nil, err
+		}
+	}
+
 	return &draft, nil
 }
 

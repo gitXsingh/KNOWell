@@ -32,9 +32,9 @@ type Server struct {
 func New(cfg config.Config, database *sql.DB) *Server {
 	authService := auth.NewService(database, cfg)
 	timelineService := timeline.NewService(database)
-	aiService := ai.NewService(database, cfg, timelineService)
-	webhookService := webhook.NewService(database, aiService, timelineService)
 	knowledgeService := knowledge.NewService(database, timelineService)
+	aiService := ai.NewService(database, cfg, timelineService, knowledgeService)
+	webhookService := webhook.NewService(database, aiService, timelineService)
 	searchService := search.NewService(database)
 	githubService := github.NewService(database, cfg)
 	githubService.SetWebhookProcessor(webhookService)
