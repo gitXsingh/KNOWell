@@ -1,5 +1,10 @@
 {
   "rewrites": [
+    { "source": "/auth/(.*)", "destination": "https://knowell-7pyh.onrender.com/auth/$1" },
+    { "source": "/workspaces/(.*)", "destination": "https://knowell-7pyh.onrender.com/workspaces/$1" },
+    { "source": "/github/(.*)", "destination": "https://knowell-7pyh.onrender.com/github/$1" },
+    { "source": "/ai/(.*)", "destination": "https://knowell-7pyh.onrender.com/ai/$1" },
+    { "source": "/health", "destination": "https://knowell-7pyh.onrender.com/health" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
