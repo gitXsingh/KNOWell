@@ -1,11 +1,9 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="frontend/KWLogobg.png">
-    <img alt="KNOWell" src="KWLogobg.png" width="140" height="140">
+    <img alt="KNOWell" src="KWLogobg.png" width="300" height="170">
   </picture>
 </p>
-
-<h1 align="center">KNOWell</h1>
 
 <p align="center">
   A platform that captures and preserves engineering knowledge from your development workflow.
