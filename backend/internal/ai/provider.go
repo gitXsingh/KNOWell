@@ -22,18 +22,49 @@ type geminiProvider struct {
 }
 
 func newProvider(cfg config.Config) Provider {
-	if cfg.GeminiAPIKey != "" {
-		model := cfg.GeminiModel
-		if model == "" {
-			model = "gemini-2.0-flash"
-		}
-		return &geminiProvider{
-			apiKey: cfg.GeminiAPIKey,
-			model:  model,
-			client: &http.Client{Timeout: geminiRequestTimeout},
-		}
+	builtin := builtinProvider{}
+	if cfg.GeminiAPIKey == "" {
+		return builtin
 	}
-	return builtinProvider{}
+	model := cfg.GeminiModel
+	if model == "" {
+		model = "gemini-2.0-flash"
+	}
+	gemini := &geminiProvider{
+		apiKey: cfg.GeminiAPIKey,
+		model:  model,
+		client: &http.Client{Timeout: geminiRequestTimeout},
+	}
+	return &fallbackProvider{primary: gemini, fallback: builtin}
+}
+
+type fallbackProvider struct {
+	primary   Provider
+	fallback  Provider
+}
+
+func (f *fallbackProvider) Name() string {
+	return f.primary.Name()
+}
+
+func (f *fallbackProvider) GenerateCommitDraft(ctx context.Context, input CommitInput) (*DraftOutput, error) {
+	output, err := f.primary.GenerateCommitDraft(ctx, input)
+	if err != nil && isRateLimitError(err) {
+		return f.fallback.GenerateCommitDraft(ctx, input)
+	}
+	return output, err
+}
+
+func (f *fallbackProvider) GeneratePullRequestDraft(ctx context.Context, input PullRequestInput) (*DraftOutput, error) {
+	output, err := f.primary.GeneratePullRequestDraft(ctx, input)
+	if err != nil && isRateLimitError(err) {
+		return f.fallback.GeneratePullRequestDraft(ctx, input)
+	}
+	return output, err
+}
+
+func isRateLimitError(err error) bool {
+	return strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "RESOURCE_EXHAUSTED")
 }
 
 type geminiContent struct {
