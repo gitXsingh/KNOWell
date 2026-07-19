@@ -295,7 +295,7 @@ func (s *Service) Members(ctx context.Context, userID, workspaceID string) ([]Me
 		SELECT wm.user_id, u.email, u.full_name, wm.role, wm.joined_at
 		FROM workspace_members wm
 		JOIN users u ON u.id = wm.user_id
-		WHERE wm.workspace_id = $1
+		WHERE wm.workspace_id = $1::uuid
 		ORDER BY wm.joined_at ASC
 	`, workspaceID)
 	if err != nil {
@@ -318,7 +318,7 @@ func (s *Service) Members(ctx context.Context, userID, workspaceID string) ([]Me
 func (s *Service) isOwner(ctx context.Context, workspaceID, userID string) (bool, error) {
 	var role string
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2
+		SELECT role FROM workspace_members WHERE workspace_id = $1::uuid AND user_id = $2::uuid
 	`, workspaceID, userID).Scan(&role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrWorkspaceMissing
@@ -349,24 +349,19 @@ func (s *Service) JoinByKey(ctx context.Context, userID, key string) (*Workspace
 	}
 
 	var memberExists bool
-	_ = s.db.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2)
-	`, workspace.ID, userID).Scan(&memberExists)
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id = $1::uuid AND user_id = $2::uuid)
+	`, workspace.ID, userID).Scan(&memberExists); err != nil {
+		return nil, err
+	}
 	if memberExists {
 		return nil, ErrWorkspaceAlreadyMember
 	}
 
-	var requestExists bool
-	_ = s.db.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM join_requests WHERE workspace_id = $1 AND user_id = $2 AND status = 'pending')
-	`, workspace.ID, userID).Scan(&requestExists)
-	if requestExists {
-		return nil, ErrJoinRequestExists
-	}
-
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO join_requests (workspace_id, user_id, status)
-		VALUES ($1, $2, 'pending')
+		VALUES ($1::uuid, $2::uuid, 'pending')
+		ON CONFLICT (workspace_id, user_id) DO UPDATE SET status = 'pending', reviewed_at = NULL, reviewed_by_user_id = NULL
 	`, workspace.ID, userID); err != nil {
 		return nil, err
 	}
@@ -387,7 +382,7 @@ func (s *Service) ListJoinRequests(ctx context.Context, userID, workspaceID stri
 		SELECT jr.id, jr.workspace_id, jr.user_id, u.email, u.full_name, jr.status, jr.created_at, jr.reviewed_at, jr.reviewed_by_user_id
 		FROM join_requests jr
 		JOIN users u ON u.id = jr.user_id
-		WHERE jr.workspace_id = $1
+		WHERE jr.workspace_id = $1::uuid
 		ORDER BY jr.created_at DESC
 	`, workspaceID)
 	if err != nil {
@@ -425,7 +420,7 @@ func (s *Service) ApproveJoinRequest(ctx context.Context, ownerID, workspaceID, 
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, workspace_id, user_id, status, created_at, reviewed_at
 		FROM join_requests
-		WHERE workspace_id = $1 AND user_id = $2
+		WHERE workspace_id = $1::uuid AND user_id = $2::uuid
 		FOR UPDATE
 	`, workspaceID, requesterUserID).Scan(&jr.ID, &jr.WorkspaceID, &jr.UserID, &jr.Status, &jr.CreatedAt, &jr.ReviewedAt)
 	if err != nil {
@@ -440,7 +435,7 @@ func (s *Service) ApproveJoinRequest(ctx context.Context, ownerID, workspaceID, 
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO workspace_members (workspace_id, user_id, role)
-		VALUES ($1, $2, 'member')
+		VALUES ($1::uuid, $2::uuid, 'member')
 	`, workspaceID, requesterUserID); err != nil {
 		return nil, err
 	}
@@ -477,7 +472,7 @@ func (s *Service) RejectJoinRequest(ctx context.Context, ownerID, workspaceID, r
 	err = s.db.QueryRowContext(ctx, `
 		SELECT id, workspace_id, user_id, status, created_at, reviewed_at
 		FROM join_requests
-		WHERE workspace_id = $1 AND user_id = $2
+		WHERE workspace_id = $1::uuid AND user_id = $2::uuid
 	`, workspaceID, requesterUserID).Scan(&jr.ID, &jr.WorkspaceID, &jr.UserID, &jr.Status, &jr.CreatedAt, &jr.ReviewedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -15,6 +15,8 @@ interface JoinRequest {
   created_at: string;
 }
 
+type PageStatus = "loading" | "loaded" | "not-found";
+
 export default function WorkspaceDetail() {
   const { wid } = useParams();
   const { toast } = useToast();
@@ -28,31 +30,30 @@ export default function WorkspaceDetail() {
   const [newDesc, setNewDesc] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<PageStatus>("loading");
   const [showForm, setShowForm] = useState(false);
 
   function loadAll() {
     if (!wid) return;
-    setLoading(true);
-    Promise.all([
-      request<Workspace>(`/workspaces/${wid}`).then(setWorkspace).catch(() => setWorkspace(null)),
-      request<Project[]>(`/workspaces/${wid}/projects`).then((d) => setProjects(d ?? [])).catch(() => setProjects([])),
-      request<Member[]>(`/workspaces/${wid}/members`).then((d) => setMembers(d ?? [])).catch(() => setMembers([])),
-      request<{ join_key: string }>(`/workspaces/${wid}/join-key`).then((d) => setJoinKey(d.join_key)).catch(() => setJoinKey("")),
-      request<JoinRequest[]>(`/workspaces/${wid}/join-requests`).then((d) => setJoinRequests(d ?? [])).catch(() => setJoinRequests([])),
-    ]).finally(() => setLoading(false));
+    setStatus("loading");
+    request<Workspace>(`/workspaces/${wid}`).then((d) => { setWorkspace(d); setStatus("loaded"); }).catch(() => { setWorkspace(null); setStatus("not-found"); });
+    request<Project[]>(`/workspaces/${wid}/projects`).then((d) => setProjects(d ?? [])).catch(() => setProjects([]));
+    request<Member[]>(`/workspaces/${wid}/members`).then((d) => setMembers(d ?? [])).catch(() => setMembers([]));
+    request<{ join_key: string }>(`/workspaces/${wid}/join-key`).then((d) => setJoinKey(d.join_key)).catch(() => setJoinKey(""));
+    request<JoinRequest[]>(`/workspaces/${wid}/join-requests`).then((d) => setJoinRequests(d ?? [])).catch(() => setJoinRequests([]));
   }
 
   useEffect(() => { loadAll(); }, [wid]);
 
-  if (!workspace) {
-    if (loading) return (
+  if (status !== "loaded") {
+    if (status === "not-found") return <NotFound />;
+    return (
       <div className="page-content">
         <div className="empty-state"><h3>Loading workspace...</h3></div>
       </div>
     );
-    return <NotFound />;
   }
+  if (!workspace) return null;
 
   async function createProject(e: React.FormEvent) {
     e.preventDefault();
