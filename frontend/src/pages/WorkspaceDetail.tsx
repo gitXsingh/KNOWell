@@ -5,6 +5,7 @@ import { request, fmtDate } from "../lib/api";
 import type { Workspace, Project, Member } from "../lib/api";
 import NotFound from "./NotFound";
 import { useToast } from "../lib/toast";
+import { useAuth } from "../lib/auth";
 
 interface JoinRequest {
   id: string;
@@ -20,6 +21,7 @@ type PageStatus = "loading" | "loaded" | "not-found";
 export default function WorkspaceDetail() {
   const { wid } = useParams();
   const { toast } = useToast();
+  const { session } = useAuth();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -36,11 +38,16 @@ export default function WorkspaceDetail() {
   function loadAll() {
     if (!wid) return;
     setStatus("loading");
-    request<Workspace>(`/workspaces/${wid}`).then((d) => { setWorkspace(d); setStatus("loaded"); }).catch(() => { setWorkspace(null); setStatus("not-found"); });
+    request<Workspace>(`/workspaces/${wid}`).then((d) => {
+      setWorkspace(d);
+      setStatus("loaded");
+      if (session?.user?.id === d.owner_user_id) {
+        request<JoinRequest[]>(`/workspaces/${wid}/join-requests`).then((d) => setJoinRequests(d ?? [])).catch(() => setJoinRequests([]));
+      }
+    }).catch(() => { setWorkspace(null); setStatus("not-found"); });
     request<Project[]>(`/workspaces/${wid}/projects`).then((d) => setProjects(d ?? [])).catch(() => setProjects([]));
     request<Member[]>(`/workspaces/${wid}/members`).then((d) => setMembers(d ?? [])).catch(() => setMembers([]));
     request<{ join_key: string }>(`/workspaces/${wid}/join-key`).then((d) => setJoinKey(d.join_key)).catch(() => setJoinKey(""));
-    request<JoinRequest[]>(`/workspaces/${wid}/join-requests`).then((d) => setJoinRequests(d ?? [])).catch(() => setJoinRequests([]));
   }
 
   useEffect(() => { loadAll(); }, [wid]);
@@ -54,6 +61,8 @@ export default function WorkspaceDetail() {
     );
   }
   if (!workspace) return null;
+
+  const isOwner = session?.user?.id === workspace.owner_user_id;
 
   async function createProject(e: React.FormEvent) {
     e.preventDefault();
@@ -152,7 +161,7 @@ export default function WorkspaceDetail() {
           </div>
         </div>
 
-        {workspace.kind === "team" && (
+        {workspace.kind === "team" && isOwner && (
           <div className="card card--compact">
             <div className="row gap-2" style={{ marginBottom: "var(--space-2)" }}>
               <UserCheck size={14} />

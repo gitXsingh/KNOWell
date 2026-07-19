@@ -293,7 +293,9 @@ func (s *Service) canAccessProject(ctx context.Context, userID, projectID string
 	var exists bool
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2
+			SELECT 1 FROM workspace_members wm
+			JOIN projects p ON p.workspace_id = wm.workspace_id
+			WHERE p.id = $1 AND wm.user_id = $2
 		)
 	`, projectID, userID).Scan(&exists)
 	return exists

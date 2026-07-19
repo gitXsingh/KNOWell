@@ -240,9 +240,15 @@ func (s *Service) Review(ctx context.Context, userID, projectID, draftID string,
 }
 
 func (s *Service) GenerateCommitDraft(ctx context.Context, commitID string) error {
-	if existing, err := s.hasExistingDraft(ctx, "commit", commitID); err != nil {
+	var existingID string
+	var existingStatus string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, status FROM ai_drafts WHERE source_type = 'commit' AND commit_id = $1
+	`, commitID).Scan(&existingID, &existingStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
-	} else if existing {
+	}
+	if existingStatus != "" && existingStatus != "draft" && existingStatus != "in_review" {
 		return nil
 	}
 
@@ -278,25 +284,24 @@ func (s *Service) GenerateCommitDraft(ctx context.Context, commitID string) erro
 		return err
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO ai_drafts (
-			project_id,
-			repository_id,
-			commit_id,
-			source_type,
-			status,
-			suggested_title,
-			summary,
-			importance,
-			reason,
-			decision_body,
-			agents_md,
-			raw_input_json,
-			ai_provider,
-			version
-		)
-		VALUES ($1, $2, $3, 'commit', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
-	`, input.ProjectID, input.RepositoryID, input.CommitID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+	if existingID != "" {
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE ai_drafts
+			SET suggested_title = $1, summary = $2, importance = $3, reason = $4,
+			    decision_body = $5, agents_md = $6, raw_input_json = $7,
+			    ai_provider = $8, version = version + 1
+			WHERE id = $9
+		`, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name(), existingID)
+	} else {
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO ai_drafts (
+				project_id, repository_id, commit_id, source_type, status,
+				suggested_title, summary, importance, reason, decision_body,
+				agents_md, raw_input_json, ai_provider, version
+			)
+			VALUES ($1, $2, $3, 'commit', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
+		`, input.ProjectID, input.RepositoryID, input.CommitID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+	}
 	if err != nil {
 		return err
 	}
@@ -313,9 +318,15 @@ func (s *Service) GenerateCommitDraft(ctx context.Context, commitID string) erro
 }
 
 func (s *Service) GeneratePullRequestDraft(ctx context.Context, pullRequestID string) error {
-	if existing, err := s.hasExistingDraft(ctx, "pull_request", pullRequestID); err != nil {
+	var existingID string
+	var existingStatus string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, status FROM ai_drafts WHERE source_type = 'pull_request' AND pull_request_id = $1
+	`, pullRequestID).Scan(&existingID, &existingStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
-	} else if existing {
+	}
+	if existingStatus != "" && existingStatus != "draft" && existingStatus != "in_review" {
 		return nil
 	}
 
@@ -353,25 +364,24 @@ func (s *Service) GeneratePullRequestDraft(ctx context.Context, pullRequestID st
 		return err
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO ai_drafts (
-			project_id,
-			repository_id,
-			pull_request_id,
-			source_type,
-			status,
-			suggested_title,
-			summary,
-			importance,
-			reason,
-			decision_body,
-			agents_md,
-			raw_input_json,
-			ai_provider,
-			version
-		)
-		VALUES ($1, $2, $3, 'pull_request', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
-	`, input.ProjectID, input.RepositoryID, input.PullRequestID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+	if existingID != "" {
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE ai_drafts
+			SET suggested_title = $1, summary = $2, importance = $3, reason = $4,
+			    decision_body = $5, agents_md = $6, raw_input_json = $7,
+			    ai_provider = $8, version = version + 1
+			WHERE id = $9
+		`, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name(), existingID)
+	} else {
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO ai_drafts (
+				project_id, repository_id, pull_request_id, source_type, status,
+				suggested_title, summary, importance, reason, decision_body,
+				agents_md, raw_input_json, ai_provider, version
+			)
+			VALUES ($1, $2, $3, 'pull_request', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
+		`, input.ProjectID, input.RepositoryID, input.PullRequestID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+	}
 	if err != nil {
 		return err
 	}
@@ -409,7 +419,9 @@ func (s *Service) canAccessProject(ctx context.Context, userID, projectID string
 	var exists bool
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2
+			SELECT 1 FROM workspace_members wm
+			JOIN projects p ON p.workspace_id = wm.workspace_id
+			WHERE p.id = $1 AND wm.user_id = $2
 		)
 	`, projectID, userID).Scan(&exists)
 	return exists
