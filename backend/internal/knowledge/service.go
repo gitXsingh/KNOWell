@@ -37,6 +37,7 @@ type KnowledgeItemResponse struct {
 	CreatedByUserID  string     `json:"created_by_user_id,omitempty"`
 	ApprovedByUserID string     `json:"approved_by_user_id,omitempty"`
 	ApprovedAt       *time.Time `json:"approved_at,omitempty"`
+	EventOccurredAt  *time.Time `json:"event_occurred_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
@@ -73,10 +74,10 @@ func (s *Service) List(ctx context.Context, userID, projectID string, p paginati
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
+		SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, event_occurred_at, created_at, updated_at
 		FROM knowledge_items
 		WHERE project_id = $1
-		ORDER BY created_at DESC
+		ORDER BY event_occurred_at ASC NULLS LAST, created_at ASC
 		LIMIT $2 OFFSET $3
 	`, projectID, p.Limit, p.Offset)
 	if err != nil {
@@ -101,7 +102,7 @@ func (s *Service) Get(ctx context.Context, userID, projectID, knowledgeID string
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
+		SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, event_occurred_at, created_at, updated_at
 		FROM knowledge_items
 		WHERE project_id = $1 AND id = $2
 	`, projectID, knowledgeID)
@@ -201,7 +202,7 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 	`, projectID, commitID, pullRequestID).Scan(&existingID)
 	if err == nil {
 		rows, err := tx.QueryContext(ctx, `
-			SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
+			SELECT id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, event_occurred_at, created_at, updated_at
 			FROM knowledge_items
 			WHERE id = $1
 		`, existingID)
@@ -233,6 +234,19 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 		}
 	}
 
+	var eventOccurredAt *time.Time
+	if commitID.Valid {
+		var t time.Time
+		if err := tx.QueryRowContext(ctx, `SELECT committed_at FROM commits WHERE id = $1`, commitID).Scan(&t); err == nil {
+			eventOccurredAt = &t
+		}
+	} else if pullRequestID.Valid {
+		var t sql.NullTime
+		if err := tx.QueryRowContext(ctx, `SELECT merged_at FROM pull_requests WHERE id = $1`, pullRequestID).Scan(&t); err == nil && t.Valid {
+			eventOccurredAt = &t.Time
+		}
+	}
+
 	body := summary
 	if strings.TrimSpace(reason) != "" {
 		body += "\n\nReason: " + strings.TrimSpace(reason)
@@ -253,13 +267,14 @@ func (s *Service) PromoteApprovedDraft(ctx context.Context, userID, projectID, d
 			status,
 			created_by_user_id,
 			approved_by_user_id,
-			approved_at
+			approved_at,
+			event_occurred_at
 		)
 		VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $11, now()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $11, now(), $12
 		)
-		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, created_at, updated_at
-	`, projectID, repositoryID, commitID, pullRequestID, title, summary, body, decisionBody, agentsMd, importance, userID)
+		RETURNING id, project_id, repository_id, commit_id, pull_request_id, title, summary, body, decision_body, agents_md, importance, status, created_by_user_id, approved_by_user_id, approved_at, event_occurred_at, created_at, updated_at
+	`, projectID, repositoryID, commitID, pullRequestID, title, summary, body, decisionBody, agentsMd, importance, userID, eventOccurredAt)
 	if err != nil {
 		return err
 	}
@@ -330,11 +345,12 @@ func scanKnowledge(scanner interface{ Scan(...any) error }) (KnowledgeItemRespon
 		createdByUserID  sql.NullString
 		approvedByUserID sql.NullString
 		approvedAt       sql.NullTime
+		eventOccurredAt  sql.NullTime
 		createdAt        time.Time
 		updatedAt        time.Time
 	)
 
-	if err := scanner.Scan(&id, &projectID, &repositoryID, &commitID, &pullRequestID, &title, &summary, &body, &decisionBody, &agentsMd, &importance, &status, &createdByUserID, &approvedByUserID, &approvedAt, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&id, &projectID, &repositoryID, &commitID, &pullRequestID, &title, &summary, &body, &decisionBody, &agentsMd, &importance, &status, &createdByUserID, &approvedByUserID, &approvedAt, &eventOccurredAt, &createdAt, &updatedAt); err != nil {
 		return KnowledgeItemResponse{}, err
 	}
 
@@ -369,6 +385,10 @@ func scanKnowledge(scanner interface{ Scan(...any) error }) (KnowledgeItemRespon
 	if approvedAt.Valid {
 		value := approvedAt.Time
 		item.ApprovedAt = &value
+	}
+	if eventOccurredAt.Valid {
+		value := eventOccurredAt.Time
+		item.EventOccurredAt = &value
 	}
 	return item, nil
 }

@@ -92,6 +92,7 @@ export interface KnowledgeItem {
   created_by_user_id?: string;
   approved_by_user_id?: string;
   approved_at?: string;
+  event_occurred_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +111,8 @@ export interface Draft {
   importance: number;
   status: string;
   reason?: string;
+  previous_draft_id?: string;
+  next_draft_id?: string;
   raw_input_json?: Record<string, unknown>;
   created_at: string;
   updated_at: string;

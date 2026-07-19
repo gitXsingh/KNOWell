@@ -70,8 +70,11 @@ type DraftResponse struct {
 	AgentsMd         string         `json:"agents_md"`
 	AIProvider       string         `json:"ai_provider"`
 	Version          int            `json:"version"`
+	PreviousDraftID  string         `json:"previous_draft_id,omitempty"`
+	NextDraftID      string         `json:"next_draft_id,omitempty"`
 	ReviewedByUserID string         `json:"reviewed_by_user_id,omitempty"`
 	ReviewedAt       *time.Time     `json:"reviewed_at,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
 	RawInputJSON     map[string]any `json:"raw_input_json"`
 }
 
@@ -113,9 +116,10 @@ type DraftOutput struct {
 }
 
 var (
-	ErrDraftMissing = errors.New("draft not found")
-	ErrDraftDenied  = errors.New("draft access denied")
-	ErrDraftState   = errors.New("invalid draft state")
+	ErrDraftMissing           = errors.New("draft not found")
+	ErrDraftDenied            = errors.New("draft access denied")
+	ErrDraftState             = errors.New("invalid draft state")
+	ErrDraftSequentialApproval = errors.New("approve the previous draft first")
 )
 
 func NewService(database *sql.DB, cfg config.Config, timelineService *timeline.Service, knowledge KnowledgePromoter) *Service {
@@ -151,10 +155,10 @@ func (s *Service) List(ctx context.Context, userID, projectID string, p paginati
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, reviewed_by_user_id, reviewed_at, raw_input_json
+		SELECT id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, previous_draft_id, next_draft_id, reviewed_by_user_id, reviewed_at, created_at, raw_input_json
 		FROM ai_drafts
 		WHERE project_id = $1
-		ORDER BY id DESC
+		ORDER BY created_at ASC
 		LIMIT $2 OFFSET $3
 	`, projectID, p.Limit, p.Offset)
 	if err != nil {
@@ -180,7 +184,7 @@ func (s *Service) Get(ctx context.Context, userID, projectID, draftID string) (*
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, reviewed_by_user_id, reviewed_at, raw_input_json
+		SELECT id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, previous_draft_id, next_draft_id, reviewed_by_user_id, reviewed_at, created_at, raw_input_json
 		FROM ai_drafts
 		WHERE project_id = $1 AND id = $2
 	`, projectID, draftID)
@@ -211,11 +215,27 @@ func (s *Service) Review(ctx context.Context, userID, projectID, draftID string,
 		return nil, ErrDraftState
 	}
 
+	if status == "approved" {
+		var prevStatus sql.NullString
+		err := s.db.QueryRowContext(ctx, `
+			SELECT ad2.status FROM ai_drafts ad1
+			JOIN ai_drafts ad2 ON ad2.id = ad1.previous_draft_id
+			WHERE ad1.id = $1
+		`, draftID).Scan(&prevStatus)
+		if err == nil {
+			if prevStatus.Valid && prevStatus.String != "approved" {
+				return nil, ErrDraftSequentialApproval
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		UPDATE ai_drafts
 		SET status = $1, reviewed_by_user_id = $2, reviewed_at = now()
 		WHERE project_id = $3 AND id = $4
-		RETURNING id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, reviewed_by_user_id, reviewed_at, raw_input_json
+		RETURNING id, project_id, repository_id, commit_id, pull_request_id, source_type, status, suggested_title, summary, importance, reason, decision_body, agents_md, ai_provider, version, previous_draft_id, next_draft_id, reviewed_by_user_id, reviewed_at, created_at, raw_input_json
 	`, status, userID, projectID, draftID)
 	if err != nil {
 		return nil, err
@@ -293,14 +313,22 @@ func (s *Service) GenerateCommitDraft(ctx context.Context, commitID string) erro
 			WHERE id = $9
 		`, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name(), existingID)
 	} else {
-		_, err = s.db.ExecContext(ctx, `
+		var newID string
+		err = s.db.QueryRowContext(ctx, `
 			INSERT INTO ai_drafts (
 				project_id, repository_id, commit_id, source_type, status,
 				suggested_title, summary, importance, reason, decision_body,
 				agents_md, raw_input_json, ai_provider, version
 			)
 			VALUES ($1, $2, $3, 'commit', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
-		`, input.ProjectID, input.RepositoryID, input.CommitID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+			RETURNING id
+		`, input.ProjectID, input.RepositoryID, input.CommitID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name()).Scan(&newID)
+		if err != nil {
+			return err
+		}
+		if err := s.linkDraftToChain(ctx, newID, input.ProjectID); err != nil {
+			return err
+		}
 	}
 	if err != nil {
 		return err
@@ -373,14 +401,22 @@ func (s *Service) GeneratePullRequestDraft(ctx context.Context, pullRequestID st
 			WHERE id = $9
 		`, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name(), existingID)
 	} else {
-		_, err = s.db.ExecContext(ctx, `
+		var newID string
+		err = s.db.QueryRowContext(ctx, `
 			INSERT INTO ai_drafts (
 				project_id, repository_id, pull_request_id, source_type, status,
 				suggested_title, summary, importance, reason, decision_body,
 				agents_md, raw_input_json, ai_provider, version
 			)
 			VALUES ($1, $2, $3, 'pull_request', 'draft', $4, $5, $6, $7, $8, $9, $10, $11, 1)
-		`, input.ProjectID, input.RepositoryID, input.PullRequestID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name())
+			RETURNING id
+		`, input.ProjectID, input.RepositoryID, input.PullRequestID, output.SuggestedTitle, output.Summary, output.Importance, output.Reason, output.DecisionBody, output.AgentsMd, payload, s.provider.Name()).Scan(&newID)
+		if err != nil {
+			return err
+		}
+		if err := s.linkDraftToChain(ctx, newID, input.ProjectID); err != nil {
+			return err
+		}
 	}
 	if err != nil {
 		return err
@@ -393,6 +429,34 @@ func (s *Service) GeneratePullRequestDraft(ctx context.Context, pullRequestID st
 			"number": input.Number,
 			"title":  output.SuggestedTitle,
 		}, "draft-generated:pull-request:"+input.PullRequestID)
+	}
+	return nil
+}
+
+func (s *Service) linkDraftToChain(ctx context.Context, newDraftID, projectID string) error {
+	var lastID sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM ai_drafts
+		WHERE project_id = $1 AND next_draft_id IS NULL AND id != $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, projectID, newDraftID).Scan(&lastID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !lastID.Valid {
+		return nil
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE ai_drafts SET previous_draft_id = $1 WHERE id = $2
+	`, lastID.String, newDraftID); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE ai_drafts SET next_draft_id = $2 WHERE id = $1
+	`, lastID.String, newDraftID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -457,12 +521,15 @@ func scanDraft(scanner interface{ Scan(...any) error }) (DraftResponse, error) {
 		agentsMd         string
 		aiProvider       string
 		version          int
+		previousDraftID  sql.NullString
+		nextDraftID      sql.NullString
 		reviewedByUserID sql.NullString
 		reviewedAt       sql.NullTime
+		createdAt        time.Time
 		rawPayload       []byte
 	)
 
-	if err := scanner.Scan(&id, &projectID, &repositoryID, &commitID, &pullRequestID, &sourceType, &status, &suggestedTitle, &summary, &importance, &reason, &decisionBody, &agentsMd, &aiProvider, &version, &reviewedByUserID, &reviewedAt, &rawPayload); err != nil {
+	if err := scanner.Scan(&id, &projectID, &repositoryID, &commitID, &pullRequestID, &sourceType, &status, &suggestedTitle, &summary, &importance, &reason, &decisionBody, &agentsMd, &aiProvider, &version, &previousDraftID, &nextDraftID, &reviewedByUserID, &reviewedAt, &createdAt, &rawPayload); err != nil {
 		return DraftResponse{}, err
 	}
 
@@ -486,6 +553,7 @@ func scanDraft(scanner interface{ Scan(...any) error }) (DraftResponse, error) {
 		AgentsMd:       agentsMd,
 		AIProvider:     aiProvider,
 		Version:        version,
+		CreatedAt:      createdAt,
 		RawInputJSON:   rawInput,
 	}
 	if repositoryID.Valid {
@@ -496,6 +564,12 @@ func scanDraft(scanner interface{ Scan(...any) error }) (DraftResponse, error) {
 	}
 	if pullRequestID.Valid {
 		response.PullRequestID = pullRequestID.String
+	}
+	if previousDraftID.Valid {
+		response.PreviousDraftID = previousDraftID.String
+	}
+	if nextDraftID.Valid {
+		response.NextDraftID = nextDraftID.String
 	}
 	if reviewedByUserID.Valid {
 		response.ReviewedByUserID = reviewedByUserID.String
@@ -573,6 +647,8 @@ func handleAIError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "draft_not_found", "Draft not found")
 	case errors.Is(err, ErrDraftState):
 		writeError(w, http.StatusUnprocessableEntity, "validation_error", "Draft status is invalid")
+	case errors.Is(err, ErrDraftSequentialApproval):
+		writeError(w, http.StatusUnprocessableEntity, "sequential_approval_required", "Approve the previous draft first")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong")
 	}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, X, ExternalLink, RefreshCw, Sparkles, Download, FileText, Edit, BookOpen, GitBranch, Activity, Search, Loader, AlertCircle, CheckCircle, XCircle } from "lucide-react";
+import { Check, X, ExternalLink, RefreshCw, Sparkles, Download, FileText, Edit, BookOpen, GitBranch, Activity, Search, Loader, AlertCircle, CheckCircle, XCircle, Lock, ArrowDown } from "lucide-react";
 import { request, fmtDate, humanEvent, getSourceLabel, getCategoryLabel } from "../lib/api";
 import type { Project, Repository, RepositorySummary, KnowledgeItem, Draft, TimelineEvent, GitHubStatus } from "../lib/api";
 import NotFound from "./NotFound";
@@ -569,6 +569,14 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
   async function load() { setLoading(true); try { setDrafts(await request<Draft[]>(base) ?? []); } finally { setLoading(false); } }
   useEffect(() => { load(); }, [pid]);
 
+  const draftStatus = new Map(drafts.map((d) => [d.id, d.status]));
+  const isLocked = (d: Draft) => {
+    if (d.status !== "draft" && d.status !== "in_review") return false;
+    if (!d.previous_draft_id) return false;
+    const prev = draftStatus.get(d.previous_draft_id);
+    return prev !== "approved";
+  };
+
   async function act(id: string, status: string) {
     try {
       await request(`${base}/${id}`, { method: "PATCH", body: { status } });
@@ -583,9 +591,7 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
 
   if (loading) return <div className="grid-2" style={{ marginTop: "var(--space-5)" }}>{[1,2].map(i => <div key={i} className="card card--compact"><div className="skeleton" style={{height:48}} /><div className="skeleton" style={{height:12,marginTop:8,width:"40%"}} /></div>)}</div>;
 
-  const sorted = [...drafts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  if (sorted.length === 0) return (
+  if (drafts.length === 0) return (
     <div className="col gap-3">
       <div className="empty-state">
         <div className="empty-state__icon"><FileText size={18} /></div>
@@ -608,23 +614,29 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
   return (
     <div className="grid-2" style={{ gridTemplateColumns: "1fr 2fr" }}>
       <div className="col gap-2">
-        {sorted.map((d) => (
+        {drafts.map((d) => {
+          const locked = isLocked(d);
+          return (
           <button
             key={d.id}
             className="card card--compact"
             onClick={() => setSelected(d)}
             style={{ textAlign: "left", width: "100%", borderColor: selected?.id === d.id ? "var(--gray-900)" : undefined }}
           >
-            <div className="proj-card__title">{d.suggested_title || "Untitled"}</div>
+            <div className="row gap-1 align-center">
+              {locked && <Lock size={12} style={{ color: "var(--gray-400)", flexShrink: 0 }} />}
+              <div className="proj-card__title">{d.suggested_title || "Untitled"}</div>
+            </div>
             <div className="row gap-1" style={{ marginTop: "var(--space-1)" }}>
-              <span className={`pill ${d.status === "approved" ? "pill--success" : d.status === "rejected" ? "pill--warning" : d.status === "archived" ? "pill--default" : "pill--default"}`}>
-                {d.status}
+              <span className={`pill ${d.status === "approved" ? "pill--success" : d.status === "rejected" ? "pill--warning" : d.status === "archived" ? "pill--default" : locked ? "pill--default" : "pill--default"}`}>
+                {locked ? "locked" : d.status}
               </span>
               <span className="pill pill--default">{getSourceLabel_draft(d)}</span>
             </div>
-            <div className="text-dim text-xs" style={{ marginTop: "var(--space-1)" }}>{fmtDate(d.created_at)}</div>
+            {locked && <div className="text-dim text-xs" style={{ marginTop: "var(--space-1)" }}>Approve the previous draft first</div>}
+            {!locked && <div className="text-dim text-xs" style={{ marginTop: "var(--space-1)" }}>{fmtDate(d.created_at)}</div>}
           </button>
-        ))}
+        );})}
       </div>
 
       <div className="card">
@@ -667,9 +679,15 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
             <div className="row gap-1" style={{ flexWrap: "wrap" }}>
               {selected.status === "draft" && (
                 <>
-                  <button className="btn btn--primary btn--sm" onClick={() => act(selected.id, "approved")}>
-                    <Check size={13} /> Approve
-                  </button>
+                  {isLocked(selected) ? (
+                    <span className="btn btn--sm" style={{ background: "var(--gray-100)", color: "var(--gray-400)", cursor: "not-allowed", display: "inline-flex" }}>
+                      <Lock size={13} /> Approve (locked)
+                    </span>
+                  ) : (
+                    <button className="btn btn--primary btn--sm" onClick={() => act(selected.id, "approved")}>
+                      <Check size={13} /> Approve
+                    </button>
+                  )}
                   <button className="btn btn--ghost btn--sm" style={{ color: "var(--red-500)" }} onClick={() => act(selected.id, "rejected")}>
                     <X size={13} /> Reject
                   </button>
@@ -689,6 +707,12 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
                 </button>
               )}
             </div>
+            {selected.status === "draft" && isLocked(selected) && (
+              <div className="text-dim text-xs" style={{ marginTop: "var(--space-1)" }}>
+                <Lock size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                This draft cannot be approved until the previous draft is approved.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -697,33 +721,84 @@ function DraftsTab({ wid, pid }: { wid: string; pid: string }) {
 }
 
 function TimelineTab({ wid, pid }: { wid: string; pid: string }) {
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
+  const base = `/workspaces/${wid}/projects/${pid}`;
+
   useEffect(() => {
     setLoading(true);
-    request<TimelineEvent[]>(`/workspaces/${wid}/projects/${pid}/timeline`).then((d) => setEvents(d ?? [])).finally(() => setLoading(false));
+    request<Draft[]>(`${base}/drafts`).then((d) => setDrafts(d ?? [])).finally(() => setLoading(false));
   }, [pid]);
 
-  if (loading) return <div className="col gap-2" style={{ marginTop: "var(--space-5)", maxWidth: 600 }}>{[1,2,3].map(i => <div key={i} className="card card--compact"><div className="skeleton" style={{height:28}} /></div>)}</div>;
+  if (loading) return <div className="col gap-2" style={{ marginTop: "var(--space-5)", maxWidth: 600 }}>{[1,2,3].map(i => <div key={i} className="card card--compact"><div className="skeleton" style={{height:48}} /></div>)}</div>;
 
-  if (events.length === 0) return (
+  if (drafts.length === 0) return (
     <div className="empty-state">
       <div className="empty-state__icon"><Activity size={18} /></div>
-      <h3>No activity yet</h3>
-      <p>Events appear after connecting a repository and processing webhooks.</p>
+      <h3>No timeline yet</h3>
+      <p>Drafts appear after connecting a repository and processing webhooks.</p>
     </div>
   );
 
+  const statusIcon = (s: string) => {
+    switch (s) {
+      case "approved": return <CheckCircle size={16} style={{ color: "var(--green-500)" }} />;
+      case "rejected": return <XCircle size={16} style={{ color: "var(--red-500)" }} />;
+      case "draft":
+      case "in_review": return <Loader size={16} style={{ color: "var(--amber-500)" }} />;
+      default: return <Lock size={16} style={{ color: "var(--gray-400)" }} />;
+    }
+  };
+
+  const statusLabel = (s: string) => {
+    switch (s) {
+      case "approved": return "✓ Approved";
+      case "rejected": return "✗ Rejected";
+      case "draft": return "⏳ Pending";
+      case "in_review": return "⏳ In Review";
+      default: return "🔒 Locked";
+    }
+  };
+
+  const draftStatus = new Map(drafts.map((d) => [d.id, d.status]));
+  const isLocked = (d: Draft) => {
+    if (d.status !== "draft" && d.status !== "in_review") return false;
+    if (!d.previous_draft_id) return false;
+    const prev = draftStatus.get(d.previous_draft_id);
+    return prev !== "approved";
+  };
+
   return (
-    <div className="col gap-2" style={{ maxWidth: 600 }}>
-      {events.map((e) => (
-        <div key={e.id} className="card card--compact">
-          <div className="row justify-between">
-            <span className="text-strong text-sm">{humanEvent(e.event_type, e.payload)}</span>
-            <span className="text-dim text-xs">{fmtDate(e.created_at)}</span>
+    <div className="col" style={{ maxWidth: 600 }}>
+      {drafts.map((d, i) => {
+        const locked = isLocked(d);
+        return (
+          <div key={d.id}>
+            {i > 0 && (
+              <div className="col" style={{ alignItems: "center", padding: "2px 0" }}>
+                <ArrowDown size={14} style={{ color: "var(--gray-400)" }} />
+              </div>
+            )}
+            <div className={`card card--compact ${locked ? "" : ""}`}>
+              <div className="row gap-2">
+                {locked ? <Lock size={16} style={{ color: "var(--gray-400)" }} /> : statusIcon(d.status)}
+                <div className="flex-1" style={{ minWidth: 0 }}>
+                  <div className="row gap-1" style={{ marginBottom: 2 }}>
+                    <span className="text-strong text-sm">{d.suggested_title || "Untitled"}</span>
+                    <span className="pill pill--default" style={{ fontSize: 10, height: 18 }}>{d.source_type}</span>
+                  </div>
+                  <div className="row gap-2">
+                    <span className="text-xs" style={{ color: locked ? "var(--gray-400)" : d.status === "approved" ? "var(--green-500)" : d.status === "rejected" ? "var(--red-500)" : "var(--amber-500)" }}>
+                      {locked ? "🔒 Locked — approve previous draft first" : statusLabel(d.status)}
+                    </span>
+                    <span className="text-dim text-xs">{fmtDate(d.created_at)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
