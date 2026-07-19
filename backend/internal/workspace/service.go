@@ -72,7 +72,7 @@ type JoinRequest struct {
 	Status          string     `json:"status"`
 	CreatedAt       time.Time  `json:"created_at"`
 	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
-	ReviewedByID    string     `json:"reviewed_by_user_id,omitempty"`
+	ReviewedByID    *string    `json:"reviewed_by_user_id,omitempty"`
 }
 
 type ApproveRejectRequest struct {
@@ -455,7 +455,7 @@ func (s *Service) ApproveJoinRequest(ctx context.Context, ownerID, workspaceID, 
 
 	jr.Status = "approved"
 	jr.ReviewedAt = &now
-	jr.ReviewedByID = ownerID
+	jr.ReviewedByID = &ownerID
 	return &jr, nil
 }
 
@@ -495,7 +495,7 @@ func (s *Service) RejectJoinRequest(ctx context.Context, ownerID, workspaceID, r
 
 	jr.Status = "rejected"
 	jr.ReviewedAt = &now
-	jr.ReviewedByID = ownerID
+	jr.ReviewedByID = &ownerID
 	return &jr, nil
 }
 
